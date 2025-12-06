@@ -210,19 +210,23 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
     onRepComplete: handleRepComplete,
   });
 
+  // Track if intro announcement has had time to play
+  const [introComplete, setIntroComplete] = useState(false);
+
   // Countdown timer
   const countdownTimer = useTimer({
     initialTime: countdownTime,
     countdown: true,
     onTick: (time) => {
       onCountdownTick(time);
-      if (time <= 3 && time > 0) {
+      // Only announce countdown after intro has had time to play (about 2 seconds)
+      if (time <= 3 && time > 0 && introComplete) {
         speechService.announceCountdown(time);
       }
     },
     onComplete: () => {
       onPhaseChange('exercising');
-      speechService.speak('Go!', 'high');
+      speechService.speak('Go!', 'high', true);
       resetCounter();
     },
   });
@@ -286,9 +290,15 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
       // Only start countdown when camera and pose detection are ready
       if (isCameraReady && isPoseReady && !countdownStarted) {
         setCountdownStarted(true);
+        setIntroComplete(false);
         countdownTimer.reset(countdownTime);
         countdownTimer.start();
         speechService.announceExerciseStart(exerciseData.name);
+        
+        // Allow intro message to complete before countdown announcements
+        setTimeout(() => {
+          setIntroComplete(true);
+        }, 2000);
       } else if (!isCameraReady || !isPoseReady) {
         // Still waiting for camera/pose to initialize
         setIsWaitingForCamera(true);
@@ -298,12 +308,14 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
       restTimer.start();
       speechService.announceRestPeriod(restPeriod);
       setCountdownStarted(false); // Reset for next set
+      setIntroComplete(false);
     } else if (phase === 'workoutComplete') {
       speechService.announceWorkoutComplete();
       onCompleteWorkout();
       releaseWakeLock();
     } else if (phase === 'exercising') {
       setIsWaitingForCamera(false);
+      setIntroComplete(true);
     }
   }, [phase, isCameraReady, isPoseReady, countdownStarted]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -312,9 +324,15 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
     if (phase === 'countdown' && isCameraReady && isPoseReady && !countdownStarted && isWaitingForCamera) {
       setCountdownStarted(true);
       setIsWaitingForCamera(false);
+      setIntroComplete(false);
       countdownTimer.reset(countdownTime);
       countdownTimer.start();
       speechService.announceExerciseStart(exerciseData.name);
+      
+      // Allow intro message to complete before countdown announcements
+      setTimeout(() => {
+        setIntroComplete(true);
+      }, 2000);
     }
   }, [isCameraReady, isPoseReady, phase, countdownStarted, isWaitingForCamera]); // eslint-disable-line react-hooks/exhaustive-deps
 
