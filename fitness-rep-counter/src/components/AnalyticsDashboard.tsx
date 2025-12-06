@@ -87,9 +87,9 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
       acc[date].rom += session.averageROM;
       acc[date].count += 1;
       return acc;
-    }, {} as Record<string, any>);
+    }, {} as Record<string, { date: string; totalReps: number; validReps: number; formScore: number; rom: number; count: number }>);
 
-    return Object.values(grouped).map((day: any) => ({
+    return Object.values(grouped).map((day) => ({
       date: day.date,
       totalReps: day.totalReps,
       validReps: day.validReps,
@@ -107,9 +107,9 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
       acc[session.exercise].count += 1;
       acc[session.exercise].reps += session.totalReps;
       return acc;
-    }, {} as Record<string, any>);
+    }, {} as Record<string, { exercise: string; count: number; reps: number }>);
 
-    return Object.values(distribution).map((item: any) => ({
+    return Object.values(distribution).map((item) => ({
       name: exercises[item.exercise as ExerciseType].name,
       workouts: item.count,
       reps: item.reps,
