@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { ExerciseType, RepData, WorkoutPhase } from '../types';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { ExerciseType, RepData, WorkoutPhase, WorkoutMode } from '../types';
 import { exercises } from '../data/exercises';
 import { useCamera, ZoomLevel } from '../hooks/useCamera';
 import { usePoseDetection } from '../hooks/usePoseDetection';
@@ -13,14 +13,29 @@ import {
   SkipForward,
   Clock,
   AlertTriangle,
-  CheckCircle
+  CheckCircle,
+  Timer
 } from 'lucide-react';
+
+// Wake Lock API type declaration
+interface WakeLockSentinel {
+  released: boolean;
+  release(): Promise<void>;
+  addEventListener(type: 'release', listener: () => void): void;
+  removeEventListener(type: 'release', listener: () => void): void;
+}
+
+interface WakeLockAPI {
+  request(type: 'screen'): Promise<WakeLockSentinel>;
+}
 
 interface WorkoutDisplayProps {
   exercise: ExerciseType;
   targetReps: number;
   totalSets: number;
   restPeriod: number;
+  workoutMode: WorkoutMode;
+  timedDuration: number;
   currentSet: number;
   phase: WorkoutPhase;
   countdownTime: number;
@@ -45,6 +60,8 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
   targetReps,
   totalSets,
   restPeriod,
+  workoutMode,
+  timedDuration,
   currentSet,
   phase,
   countdownTime,
@@ -66,8 +83,69 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
   const [isSpeechEnabled, setIsSpeechEnabled] = useState(true);
   const [lastFormIssue, setLastFormIssue] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
+  const [isWaitingForCamera, setIsWaitingForCamera] = useState(true);
+  const [countdownStarted, setCountdownStarted] = useState(false);
+  
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   const exerciseData = exercises[exercise];
+
+  // Wake Lock - keep screen on during exercise
+  const requestWakeLock = useCallback(async () => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const nav = navigator as any;
+      if ('wakeLock' in navigator && nav.wakeLock) {
+        const wakeLock = nav.wakeLock as WakeLockAPI;
+        wakeLockRef.current = await wakeLock.request('screen');
+        console.log('Wake Lock acquired');
+        
+        wakeLockRef.current.addEventListener('release', () => {
+          console.log('Wake Lock released');
+        });
+      }
+    } catch (err) {
+      console.log('Wake Lock not supported or failed:', err);
+    }
+  }, []);
+
+  const releaseWakeLock = useCallback(async () => {
+    if (wakeLockRef.current && !wakeLockRef.current.released) {
+      try {
+        await wakeLockRef.current.release();
+        wakeLockRef.current = null;
+      } catch (err) {
+        console.log('Failed to release Wake Lock:', err);
+      }
+    }
+  }, []);
+
+  // Request wake lock when workout starts, release when it ends
+  useEffect(() => {
+    if (phase === 'exercising' || phase === 'countdown' || phase === 'resting') {
+      requestWakeLock();
+    }
+    
+    return () => {
+      releaseWakeLock();
+    };
+  }, [phase, requestWakeLock, releaseWakeLock]);
+
+  // Re-acquire wake lock when page becomes visible again
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        if (phase === 'exercising' || phase === 'countdown' || phase === 'resting') {
+          requestWakeLock();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [phase, requestWakeLock]);
 
   // Camera hook
   const {
@@ -137,19 +215,23 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
     onRepComplete: handleRepComplete,
   });
 
+  // Track if intro announcement has had time to play
+  const [introComplete, setIntroComplete] = useState(false);
+
   // Countdown timer
   const countdownTimer = useTimer({
     initialTime: countdownTime,
     countdown: true,
     onTick: (time) => {
       onCountdownTick(time);
-      if (time <= 3 && time > 0) {
+      // Only announce countdown after intro has had time to play (about 2 seconds)
+      if (time <= 3 && time > 0 && introComplete) {
         speechService.announceCountdown(time);
       }
     },
     onComplete: () => {
       onPhaseChange('exercising');
-      speechService.speak('Go!', 'high');
+      speechService.speak('Go!', 'high', true);
       resetCounter();
     },
   });
@@ -168,6 +250,50 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
       onStartNextSet();
     },
   });
+
+  // Timed workout timer
+  const [workoutTimeRemaining, setWorkoutTimeRemaining] = useState(timedDuration);
+  const workoutTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Start/stop timed workout timer
+  useEffect(() => {
+    if (workoutMode === 'timed' && phase === 'exercising' && !isPaused) {
+      workoutTimerRef.current = setInterval(() => {
+        setWorkoutTimeRemaining((prev) => {
+          const newTime = prev - 1;
+          
+          // Announce time remaining at specific intervals
+          if (newTime === 30 || newTime === 10 || (newTime <= 5 && newTime > 0)) {
+            speechService.speak(`${newTime} seconds`, 'high', false);
+          }
+          
+          if (newTime <= 0) {
+            // Time's up!
+            speechService.speak("Time's up!", 'high', true);
+            onSetComplete();
+            return 0;
+          }
+          
+          return newTime;
+        });
+      }, 1000);
+    } else if (workoutTimerRef.current) {
+      clearInterval(workoutTimerRef.current);
+    }
+
+    return () => {
+      if (workoutTimerRef.current) {
+        clearInterval(workoutTimerRef.current);
+      }
+    };
+  }, [workoutMode, phase, isPaused, onSetComplete]);
+
+  // Reset timed workout timer when starting
+  useEffect(() => {
+    if (phase === 'countdown' && workoutMode === 'timed') {
+      setWorkoutTimeRemaining(timedDuration);
+    }
+  }, [phase, workoutMode, timedDuration]);
 
   // Initialize speech service
   useEffect(() => {
@@ -200,21 +326,64 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
     return () => stopDetection();
   }, [isCameraReady, isPoseReady, startDetection, stopDetection]);
 
-  // Handle phase changes
+  // Track when camera and pose are ready to start countdown
+  useEffect(() => {
+    if (isCameraReady && isPoseReady && phase === 'countdown' && isWaitingForCamera) {
+      setIsWaitingForCamera(false);
+    }
+  }, [isCameraReady, isPoseReady, phase, isWaitingForCamera]);
+
+  // Handle phase changes - wait for camera before starting countdown
   useEffect(() => {
     if (phase === 'countdown') {
-      countdownTimer.reset(countdownTime);
-      countdownTimer.start();
-      speechService.announceExerciseStart(exerciseData.name);
+      // Only start countdown when camera and pose detection are ready
+      if (isCameraReady && isPoseReady && !countdownStarted) {
+        setCountdownStarted(true);
+        setIntroComplete(false);
+        countdownTimer.reset(countdownTime);
+        countdownTimer.start();
+        speechService.announceExerciseStart(exerciseData.name);
+        
+        // Allow intro message to complete before countdown announcements
+        setTimeout(() => {
+          setIntroComplete(true);
+        }, 2000);
+      } else if (!isCameraReady || !isPoseReady) {
+        // Still waiting for camera/pose to initialize
+        setIsWaitingForCamera(true);
+      }
     } else if (phase === 'resting') {
       restTimer.reset(restPeriod);
       restTimer.start();
       speechService.announceRestPeriod(restPeriod);
+      setCountdownStarted(false); // Reset for next set
+      setIntroComplete(false);
     } else if (phase === 'workoutComplete') {
       speechService.announceWorkoutComplete();
       onCompleteWorkout();
+      releaseWakeLock();
+    } else if (phase === 'exercising') {
+      setIsWaitingForCamera(false);
+      setIntroComplete(true);
     }
-  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [phase, isCameraReady, isPoseReady, countdownStarted]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Start countdown once camera becomes ready (if we were waiting)
+  useEffect(() => {
+    if (phase === 'countdown' && isCameraReady && isPoseReady && !countdownStarted && isWaitingForCamera) {
+      setCountdownStarted(true);
+      setIsWaitingForCamera(false);
+      setIntroComplete(false);
+      countdownTimer.reset(countdownTime);
+      countdownTimer.start();
+      speechService.announceExerciseStart(exerciseData.name);
+      
+      // Allow intro message to complete before countdown announcements
+      setTimeout(() => {
+        setIntroComplete(true);
+      }, 2000);
+    }
+  }, [isCameraReady, isPoseReady, phase, countdownStarted, isWaitingForCamera]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Toggle speech
   const toggleSpeech = useCallback(() => {
@@ -271,11 +440,28 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
       {phase === 'countdown' && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
           <div className="text-center">
-            <div className="text-8xl font-bold text-white mb-4 animate-pulse">
-              {countdownTimer.time}
-            </div>
-            <div className="text-2xl text-gray-400">Get Ready!</div>
-            <div className="text-lg text-blue-400 mt-2">{exerciseData.name}</div>
+            {isWaitingForCamera || !countdownStarted ? (
+              <>
+                <div className="text-4xl font-bold text-white mb-4 animate-pulse">
+                  Initializing...
+                </div>
+                <div className="text-xl text-gray-400 mb-2">
+                  {!isCameraReady ? 'Starting camera...' : 'Loading pose detection...'}
+                </div>
+                <div className="text-lg text-blue-400 mt-2">{exerciseData.name}</div>
+                <div className="mt-6">
+                  <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-8xl font-bold text-white mb-4 animate-pulse">
+                  {countdownTimer.time}
+                </div>
+                <div className="text-2xl text-gray-400">Get Ready!</div>
+                <div className="text-lg text-blue-400 mt-2">{exerciseData.name}</div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -333,14 +519,35 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold">{exerciseData.name}</h3>
           <div className="flex items-center gap-2">
-            <span className="px-3 py-1 bg-blue-600/30 rounded-full text-sm">
-              Set {currentSet + 1}/{totalSets}
-            </span>
+            {workoutMode === 'timed' ? (
+              <span className={`px-3 py-1 rounded-full text-sm flex items-center gap-1 ${
+                workoutTimeRemaining <= 10 ? 'bg-red-600/30 text-red-400' : 'bg-orange-600/30 text-orange-400'
+              }`}>
+                <Timer className="w-4 h-4" />
+                {Math.floor(workoutTimeRemaining / 60)}:{(workoutTimeRemaining % 60).toString().padStart(2, '0')}
+              </span>
+            ) : (
+              <span className="px-3 py-1 bg-blue-600/30 rounded-full text-sm">
+                Set {currentSet + 1}/{totalSets}
+              </span>
+            )}
           </div>
         </div>
 
+        {/* Timed Mode - Large Timer Display */}
+        {workoutMode === 'timed' && phase === 'exercising' && (
+          <div className="mb-4 text-center">
+            <div className={`text-5xl font-bold ${
+              workoutTimeRemaining <= 10 ? 'text-red-400 animate-pulse' : 'text-orange-400'
+            }`}>
+              {Math.floor(workoutTimeRemaining / 60)}:{(workoutTimeRemaining % 60).toString().padStart(2, '0')}
+            </div>
+            <div className="text-sm text-gray-400 mt-1">Time Remaining</div>
+          </div>
+        )}
+
         {/* Current Set Stats */}
-        <div className="grid grid-cols-4 gap-3 mb-4">
+        <div className={`grid ${workoutMode === 'timed' ? 'grid-cols-3' : 'grid-cols-4'} gap-3 mb-4`}>
           <div className="bg-gray-700/50 rounded-lg p-3 text-center">
             <div className="text-2xl font-bold text-white">{reps.length}</div>
             <div className="text-xs text-gray-400">Reps</div>
@@ -355,12 +562,14 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
             </div>
             <div className="text-xs text-gray-400">Form</div>
           </div>
-          <div className="bg-gray-700/50 rounded-lg p-3 text-center">
-            <div className="text-2xl font-bold text-blue-400">
-              {reps.length > 0 ? Math.round(reps.reduce((s, r) => s + r.rangeOfMotion, 0) / reps.length) : 0}%
+          {workoutMode !== 'timed' && (
+            <div className="bg-gray-700/50 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-blue-400">
+                {reps.length > 0 ? Math.round(reps.reduce((s, r) => s + r.rangeOfMotion, 0) / reps.length) : 0}%
+              </div>
+              <div className="text-xs text-gray-400">ROM</div>
             </div>
-            <div className="text-xs text-gray-400">ROM</div>
-          </div>
+          )}
         </div>
 
         {/* Rep History */}
@@ -411,17 +620,31 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
                   </>
                 )}
               </button>
-              <button
-                onClick={() => {
-                  onSetComplete();
-                  const vr = reps.filter(r => r.isValid).length;
-                  speechService.announceSetComplete(currentSet + 1, vr, reps.length);
-                }}
-                className="flex-1 py-3 bg-blue-600 rounded-xl font-medium hover:bg-blue-700 transition-colors"
-              >
-                <SkipForward className="inline-block w-5 h-5 mr-2" />
-                End Set
-              </button>
+              {workoutMode === 'sets' && (
+                <button
+                  onClick={() => {
+                    onSetComplete();
+                    const vr = reps.filter(r => r.isValid).length;
+                    speechService.announceSetComplete(currentSet + 1, vr, reps.length);
+                  }}
+                  className="flex-1 py-3 bg-blue-600 rounded-xl font-medium hover:bg-blue-700 transition-colors"
+                >
+                  <SkipForward className="inline-block w-5 h-5 mr-2" />
+                  End Set
+                </button>
+              )}
+              {workoutMode === 'timed' && (
+                <button
+                  onClick={() => {
+                    onSetComplete();
+                    speechService.speak(`${reps.length} reps completed!`, 'high', true);
+                  }}
+                  className="flex-1 py-3 bg-blue-600 rounded-xl font-medium hover:bg-blue-700 transition-colors"
+                >
+                  <SkipForward className="inline-block w-5 h-5 mr-2" />
+                  Finish Early
+                </button>
+              )}
             </>
           )}
           <button

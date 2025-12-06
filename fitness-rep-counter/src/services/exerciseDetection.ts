@@ -1,81 +1,153 @@
-import { ExerciseType, Keypoint, RepData, JointAngles, FormIssue } from '../types';
+import { ExerciseType, Keypoint, RepData, JointAngles, FormIssue, CameraPerspective } from '../types';
 import { poseDetectionService, KEYPOINT_INDICES } from './poseDetection';
-import { calculateAngle, getJointAngles, checkBodyAlignment, getMidpoint } from '../utils/angleCalculations';
+import { calculateAngle, getJointAngles, checkBodyAlignment } from '../utils/angleCalculations';
 
 // Exercise phase states
-type ExercisePhase = 'up' | 'down' | 'neutral';
+type ExercisePhase = 'calibrating' | 'ready' | 'down' | 'up';
 
 interface ExerciseState {
   phase: ExercisePhase;
+  calibrationFrames: number;
+  baselineAngle: number | null;
+  baselineY: number | null;
   minAngle: number;
   maxAngle: number;
+  minY: number;
+  maxY: number;
   repStartTime: number;
+  lastPhaseChangeTime: number;
   formIssues: FormIssue[];
   angleHistory: number[];
+  yHistory: number[];
   peakPosition: Keypoint[] | null;
   bottomPosition: Keypoint[] | null;
+  stableFrames: number;
 }
+
+// Minimum requirements for rep detection
+const MIN_REP_DURATION_MS = 400; // Minimum time for a rep (prevents counting noise)
+const MIN_CALIBRATION_FRAMES = 15; // Frames needed to establish baseline
+const MIN_STABLE_FRAMES = 5; // Frames of stability before starting
+const MIN_ANGLE_CHANGE = 30; // Minimum angle change for a rep (side view)
+const MIN_Y_CHANGE_RATIO = 0.15; // Minimum Y movement as ratio of body height
 
 // Thresholds for each exercise
 const EXERCISE_THRESHOLDS = {
   pushups: {
-    upAngle: 160, // Arms extended
-    downAngle: 90, // Arms bent
-    minROM: 70, // Minimum range of motion percentage
-    idealElbowAngle: 45, // Ideal elbow angle from body
+    side: {
+      upAngle: 150, // Arms mostly extended
+      downAngle: 100, // Arms bent
+      minAngleChange: 40,
+    },
+    front: {
+      downThreshold: 0.65, // How far down (normalized)
+      upThreshold: 0.35, // How far up (normalized)
+    },
+    minROM: 50,
   },
   pullups: {
-    upAngle: 50, // Chin above bar (elbows bent)
-    downAngle: 160, // Arms extended (hanging)
-    minROM: 80,
-    idealShoulderEngagement: 30,
-  },
-  situps: {
-    upAngle: 70, // Sitting up (hip angle)
-    downAngle: 150, // Lying down
+    side: {
+      upAngle: 70,
+      downAngle: 150,
+      minAngleChange: 50,
+    },
+    front: {
+      downThreshold: 0.7,
+      upThreshold: 0.3,
+    },
     minROM: 60,
   },
+  situps: {
+    side: {
+      upAngle: 80,
+      downAngle: 140,
+      minAngleChange: 40,
+    },
+    front: {
+      downThreshold: 0.6,
+      upThreshold: 0.4,
+    },
+    minROM: 40,
+  },
   squats: {
-    upAngle: 170, // Standing (knee angle)
-    downAngle: 90, // Squatting
-    minROM: 70,
-    idealKneeAngle: 90,
+    side: {
+      upAngle: 160,
+      downAngle: 100,
+      minAngleChange: 40,
+    },
+    front: {
+      downThreshold: 0.6,
+      upThreshold: 0.35,
+    },
+    minROM: 50,
   },
   deadlift: {
-    upAngle: 170, // Standing (hip angle)
-    downAngle: 90, // Bent over
-    minROM: 75,
-    idealSpineAngle: 10, // Near vertical spine at top
+    side: {
+      upAngle: 160,
+      downAngle: 100,
+      minAngleChange: 40,
+    },
+    front: {
+      downThreshold: 0.6,
+      upThreshold: 0.35,
+    },
+    minROM: 50,
   },
   muscleup: {
-    pullPhaseUp: 60,
-    pullPhaseDown: 160,
-    pushPhaseUp: 170,
-    pushPhaseDown: 90,
-    minROM: 85,
+    side: {
+      upAngle: 160,
+      downAngle: 70,
+      minAngleChange: 60,
+    },
+    front: {
+      downThreshold: 0.7,
+      upThreshold: 0.25,
+    },
+    minROM: 70,
   },
   dips: {
-    upAngle: 170, // Arms extended
-    downAngle: 90, // Arms bent
-    minROM: 70,
+    side: {
+      upAngle: 160,
+      downAngle: 100,
+      minAngleChange: 40,
+    },
+    front: {
+      downThreshold: 0.6,
+      upThreshold: 0.35,
+    },
+    minROM: 50,
   },
 };
 
 class ExerciseDetectionService {
-  private state: ExerciseState = {
-    phase: 'neutral',
-    minAngle: 180,
-    maxAngle: 0,
-    repStartTime: 0,
-    formIssues: [],
-    angleHistory: [],
-    peakPosition: null,
-    bottomPosition: null,
-  };
-
+  private state: ExerciseState = this.getInitialState();
   private currentExercise: ExerciseType = 'pushups';
   private repCount = 0;
   private lastKeypoints: Keypoint[] | null = null;
+  private currentPerspective: CameraPerspective = 'unknown';
+  private perspectiveHistory: CameraPerspective[] = [];
+  private frameCount = 0;
+
+  private getInitialState(): ExerciseState {
+    return {
+      phase: 'calibrating',
+      calibrationFrames: 0,
+      baselineAngle: null,
+      baselineY: null,
+      minAngle: 180,
+      maxAngle: 0,
+      minY: Infinity,
+      maxY: 0,
+      repStartTime: 0,
+      lastPhaseChangeTime: 0,
+      formIssues: [],
+      angleHistory: [],
+      yHistory: [],
+      peakPosition: null,
+      bottomPosition: null,
+      stableFrames: 0,
+    };
+  }
 
   setExercise(exercise: ExerciseType): void {
     this.currentExercise = exercise;
@@ -83,190 +155,427 @@ class ExerciseDetectionService {
   }
 
   reset(): void {
-    this.state = {
-      phase: 'neutral',
-      minAngle: 180,
-      maxAngle: 0,
-      repStartTime: 0,
-      formIssues: [],
-      angleHistory: [],
-      peakPosition: null,
-      bottomPosition: null,
-    };
+    this.state = this.getInitialState();
     this.repCount = 0;
     this.lastKeypoints = null;
+    this.currentPerspective = 'unknown';
+    this.perspectiveHistory = [];
+    this.frameCount = 0;
   }
 
-  // Main detection method - returns RepData if a rep was completed
+  private detectPerspective(keypoints: Keypoint[]): CameraPerspective {
+    const getKP = (name: keyof typeof KEYPOINT_INDICES) =>
+      poseDetectionService.getKeypoint(keypoints, name);
+
+    const leftShoulder = getKP('leftShoulder');
+    const rightShoulder = getKP('rightShoulder');
+    const leftHip = getKP('leftHip');
+    const rightHip = getKP('rightHip');
+
+    if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) {
+      return 'unknown';
+    }
+
+    const minScore = 0.3;
+    if ((leftShoulder.score || 0) < minScore || (rightShoulder.score || 0) < minScore) {
+      return 'unknown';
+    }
+
+    const shoulderWidth = Math.abs(rightShoulder.x - leftShoulder.x);
+    const hipWidth = Math.abs(rightHip.x - leftHip.x);
+    const avgWidth = (shoulderWidth + hipWidth) / 2;
+    const verticalSpan = Math.abs(leftShoulder.y - leftHip.y);
+    const widthToHeightRatio = avgWidth / verticalSpan;
+
+    if (widthToHeightRatio > 0.35) {
+      return 'front';
+    } else if (widthToHeightRatio < 0.2) {
+      return 'side';
+    }
+
+    const shoulderDepthDiff = Math.abs(leftShoulder.x - rightShoulder.x);
+    if (shoulderDepthDiff < verticalSpan * 0.15) {
+      return 'front';
+    }
+
+    return 'side';
+  }
+
+  private updatePerspective(keypoints: Keypoint[]): void {
+    const detected = this.detectPerspective(keypoints);
+    
+    if (detected !== 'unknown') {
+      this.perspectiveHistory.push(detected);
+      if (this.perspectiveHistory.length > 15) {
+        this.perspectiveHistory.shift();
+      }
+
+      const frontCount = this.perspectiveHistory.filter(p => p === 'front').length;
+      const sideCount = this.perspectiveHistory.filter(p => p === 'side').length;
+
+      if (frontCount > sideCount && frontCount >= 5) {
+        this.currentPerspective = 'front';
+      } else if (sideCount > frontCount && sideCount >= 5) {
+        this.currentPerspective = 'side';
+      }
+    }
+  }
+
+  private getPrimaryValue(keypoints: Keypoint[]): { angle: number | null; yPosition: number | null; bodyHeight: number | null } {
+    const getKP = (name: keyof typeof KEYPOINT_INDICES) =>
+      poseDetectionService.getKeypoint(keypoints, name);
+
+    let angle: number | null = null;
+    let yPosition: number | null = null;
+    let bodyHeight: number | null = null;
+
+    // Calculate body height for normalization
+    const shoulder = getKP('rightShoulder') || getKP('leftShoulder');
+    const hip = getKP('rightHip') || getKP('leftHip');
+    if (shoulder && hip) {
+      bodyHeight = Math.abs(hip.y - shoulder.y);
+    }
+
+    switch (this.currentExercise) {
+      case 'pushups':
+      case 'dips': {
+        const shoulderPt = getKP('rightShoulder') || getKP('leftShoulder');
+        const elbow = getKP('rightElbow') || getKP('leftElbow');
+        const wrist = getKP('rightWrist') || getKP('leftWrist');
+        
+        if (shoulderPt && elbow && wrist) {
+          angle = calculateAngle(shoulderPt, elbow, wrist);
+        }
+        if (shoulderPt) {
+          yPosition = shoulderPt.y;
+        }
+        break;
+      }
+
+      case 'pullups':
+      case 'muscleup': {
+        const shoulderPt = getKP('rightShoulder') || getKP('leftShoulder');
+        const elbow = getKP('rightElbow') || getKP('leftElbow');
+        const wrist = getKP('rightWrist') || getKP('leftWrist');
+        
+        if (shoulderPt && elbow && wrist) {
+          angle = calculateAngle(shoulderPt, elbow, wrist);
+        }
+        if (shoulderPt) {
+          yPosition = shoulderPt.y;
+        }
+        break;
+      }
+
+      case 'situps': {
+        const shoulderPt = getKP('rightShoulder') || getKP('leftShoulder');
+        const hipPt = getKP('rightHip') || getKP('leftHip');
+        const knee = getKP('rightKnee') || getKP('leftKnee');
+        
+        if (shoulderPt && hipPt && knee) {
+          angle = calculateAngle(shoulderPt, hipPt, knee);
+        }
+        if (shoulderPt) {
+          yPosition = shoulderPt.y;
+        }
+        break;
+      }
+
+      case 'squats': {
+        const hipPt = getKP('rightHip') || getKP('leftHip');
+        const knee = getKP('rightKnee') || getKP('leftKnee');
+        const ankle = getKP('rightAnkle') || getKP('leftAnkle');
+        
+        if (hipPt && knee && ankle) {
+          angle = calculateAngle(hipPt, knee, ankle);
+        }
+        if (hipPt) {
+          yPosition = hipPt.y;
+        }
+        break;
+      }
+
+      case 'deadlift': {
+        const shoulderPt = getKP('rightShoulder') || getKP('leftShoulder');
+        const hipPt = getKP('rightHip') || getKP('leftHip');
+        const knee = getKP('rightKnee') || getKP('leftKnee');
+        
+        if (shoulderPt && hipPt && knee) {
+          angle = calculateAngle(shoulderPt, hipPt, knee);
+        }
+        if (shoulderPt) {
+          yPosition = shoulderPt.y;
+        }
+        break;
+      }
+    }
+
+    return { angle, yPosition, bodyHeight };
+  }
+
+  private isStablePosition(history: number[], threshold: number): boolean {
+    if (history.length < MIN_STABLE_FRAMES) return false;
+    
+    const recent = history.slice(-MIN_STABLE_FRAMES);
+    const avg = recent.reduce((a, b) => a + b, 0) / recent.length;
+    const maxDeviation = Math.max(...recent.map(v => Math.abs(v - avg)));
+    
+    return maxDeviation < threshold;
+  }
+
   detectRep(keypoints: Keypoint[]): RepData | null {
-    const primaryAngle = this.getPrimaryAngle(keypoints);
-    if (primaryAngle === null) return null;
+    this.frameCount++;
+    this.updatePerspective(keypoints);
 
-    // Track angle history for ROM calculation
-    this.state.angleHistory.push(primaryAngle);
-    if (this.state.angleHistory.length > 100) {
-      this.state.angleHistory.shift();
+    const { angle, yPosition, bodyHeight } = this.getPrimaryValue(keypoints);
+
+    // Track history
+    if (angle !== null) {
+      this.state.angleHistory.push(angle);
+      if (this.state.angleHistory.length > 60) {
+        this.state.angleHistory.shift();
+      }
     }
 
-    // Update min/max angles
-    if (primaryAngle < this.state.minAngle) {
-      this.state.minAngle = primaryAngle;
-      this.state.bottomPosition = keypoints;
-    }
-    if (primaryAngle > this.state.maxAngle) {
-      this.state.maxAngle = primaryAngle;
-      this.state.peakPosition = keypoints;
+    if (yPosition !== null) {
+      this.state.yHistory.push(yPosition);
+      if (this.state.yHistory.length > 60) {
+        this.state.yHistory.shift();
+      }
     }
 
-    const repData = this.checkRepCompletion(keypoints, primaryAngle);
+    // Calibration phase - wait for user to get into position
+    if (this.state.phase === 'calibrating') {
+      this.state.calibrationFrames++;
+      
+      // Check if we have enough stable data
+      const isAngleStable = this.state.angleHistory.length >= MIN_CALIBRATION_FRAMES &&
+        this.isStablePosition(this.state.angleHistory, 10);
+      const isYStable = this.state.yHistory.length >= MIN_CALIBRATION_FRAMES &&
+        this.isStablePosition(this.state.yHistory, 15);
+
+      if ((this.currentPerspective === 'side' && isAngleStable) ||
+          (this.currentPerspective === 'front' && isYStable) ||
+          (this.currentPerspective === 'unknown' && (isAngleStable || isYStable))) {
+        
+        // Set baseline values
+        if (angle !== null) {
+          const recent = this.state.angleHistory.slice(-MIN_STABLE_FRAMES);
+          this.state.baselineAngle = recent.reduce((a, b) => a + b, 0) / recent.length;
+        }
+        if (yPosition !== null) {
+          const recent = this.state.yHistory.slice(-MIN_STABLE_FRAMES);
+          this.state.baselineY = recent.reduce((a, b) => a + b, 0) / recent.length;
+        }
+        
+        this.state.phase = 'ready';
+        this.state.lastPhaseChangeTime = Date.now();
+        console.log('Calibration complete. Ready to count reps.');
+      }
+      
+      this.lastKeypoints = keypoints;
+      return null;
+    }
+
+    // Track min/max for ROM calculation
+    if (angle !== null) {
+      this.state.minAngle = Math.min(this.state.minAngle, angle);
+      this.state.maxAngle = Math.max(this.state.maxAngle, angle);
+    }
+    if (yPosition !== null) {
+      this.state.minY = Math.min(this.state.minY, yPosition);
+      this.state.maxY = Math.max(this.state.maxY, yPosition);
+    }
+
+    const repData = this.checkRepCompletion(keypoints, angle, yPosition, bodyHeight);
     this.lastKeypoints = keypoints;
 
     return repData;
   }
 
-  private getPrimaryAngle(keypoints: Keypoint[]): number | null {
-    const getKP = (name: keyof typeof KEYPOINT_INDICES) =>
-      poseDetectionService.getKeypoint(keypoints, name);
-
-    switch (this.currentExercise) {
-      case 'pushups':
-      case 'dips': {
-        // Use elbow angle
-        const shoulder = getKP('rightShoulder') || getKP('leftShoulder');
-        const elbow = getKP('rightElbow') || getKP('leftElbow');
-        const wrist = getKP('rightWrist') || getKP('leftWrist');
-        if (!shoulder || !elbow || !wrist) return null;
-        return calculateAngle(shoulder, elbow, wrist);
-      }
-
-      case 'pullups':
-      case 'muscleup': {
-        // Use elbow angle (inverted logic - bent = up)
-        const shoulder = getKP('rightShoulder') || getKP('leftShoulder');
-        const elbow = getKP('rightElbow') || getKP('leftElbow');
-        const wrist = getKP('rightWrist') || getKP('leftWrist');
-        if (!shoulder || !elbow || !wrist) return null;
-        return calculateAngle(shoulder, elbow, wrist);
-      }
-
-      case 'situps': {
-        // Use hip angle
-        const shoulder = getKP('rightShoulder') || getKP('leftShoulder');
-        const hip = getKP('rightHip') || getKP('leftHip');
-        const knee = getKP('rightKnee') || getKP('leftKnee');
-        if (!shoulder || !hip || !knee) return null;
-        return calculateAngle(shoulder, hip, knee);
-      }
-
-      case 'squats': {
-        // Use knee angle
-        const hip = getKP('rightHip') || getKP('leftHip');
-        const knee = getKP('rightKnee') || getKP('leftKnee');
-        const ankle = getKP('rightAnkle') || getKP('leftAnkle');
-        if (!hip || !knee || !ankle) return null;
-        return calculateAngle(hip, knee, ankle);
-      }
-
-      case 'deadlift': {
-        // Use hip angle
-        const shoulder = getKP('rightShoulder') || getKP('leftShoulder');
-        const hip = getKP('rightHip') || getKP('leftHip');
-        const knee = getKP('rightKnee') || getKP('leftKnee');
-        if (!shoulder || !hip || !knee) return null;
-        return calculateAngle(shoulder, hip, knee);
-      }
-
-      default:
-        return null;
-    }
-  }
-
-  private checkRepCompletion(keypoints: Keypoint[], angle: number): RepData | null {
+  private checkRepCompletion(
+    keypoints: Keypoint[], 
+    angle: number | null, 
+    yPosition: number | null,
+    bodyHeight: number | null
+  ): RepData | null {
     const thresholds = EXERCISE_THRESHOLDS[this.currentExercise];
     if (!thresholds) return null;
 
+    const now = Date.now();
+    const timeSinceLastChange = now - this.state.lastPhaseChangeTime;
+
+    // Prevent rapid phase changes (debouncing)
+    if (timeSinceLastChange < 150) return null;
+
     let repCompleted = false;
 
-    // Different exercises have different rep completion logic
-    switch (this.currentExercise) {
-      case 'pushups':
-      case 'dips':
-      case 'squats':
-      case 'situps':
-      case 'deadlift': {
-        const upThreshold = 'upAngle' in thresholds ? thresholds.upAngle : 170;
-        const downThreshold = 'downAngle' in thresholds ? thresholds.downAngle : 90;
-
-        if (this.state.phase === 'neutral' || this.state.phase === 'up') {
-          if (angle < downThreshold) {
-            if (this.state.phase === 'neutral') {
-              this.state.repStartTime = Date.now();
-            }
-            this.state.phase = 'down';
-          }
-        } else if (this.state.phase === 'down') {
-          if (angle > upThreshold) {
-            this.state.phase = 'up';
-            repCompleted = true;
-          }
-        }
-        break;
-      }
-
-      case 'pullups':
-      case 'muscleup': {
-        // Inverted - we start extended and pull up
-        const upThreshold = 'upAngle' in thresholds ? thresholds.upAngle : 60;
-        const downThreshold = 'downAngle' in thresholds ? thresholds.downAngle : 160;
-
-        if (this.state.phase === 'neutral' || this.state.phase === 'down') {
-          if (angle < upThreshold) {
-            if (this.state.phase === 'neutral') {
-              this.state.repStartTime = Date.now();
-            }
-            this.state.phase = 'up';
-          }
-        } else if (this.state.phase === 'up') {
-          if (angle > downThreshold) {
-            this.state.phase = 'down';
-            repCompleted = true;
-          }
-        }
-        break;
-      }
+    if (this.currentPerspective === 'side' && angle !== null) {
+      repCompleted = this.checkRepByAngle(angle, thresholds.side, now);
+    } else if (this.currentPerspective === 'front' && yPosition !== null && bodyHeight !== null) {
+      repCompleted = this.checkRepByPosition(yPosition, bodyHeight, thresholds.front, now);
+    } else if (angle !== null) {
+      repCompleted = this.checkRepByAngle(angle, thresholds.side, now);
     }
 
     if (repCompleted) {
-      const repData = this.createRepData(keypoints);
+      const repDuration = now - this.state.repStartTime;
+      
+      // Validate rep duration
+      if (repDuration < MIN_REP_DURATION_MS) {
+        console.log(`Rep too fast (${repDuration}ms), ignoring`);
+        return null;
+      }
+
+      const repData = this.createRepData(keypoints, repDuration);
       this.repCount++;
       
-      // Reset for next rep
+      // Reset for next rep but keep calibration
       this.state.minAngle = 180;
       this.state.maxAngle = 0;
+      this.state.minY = Infinity;
+      this.state.maxY = 0;
       this.state.formIssues = [];
-      this.state.angleHistory = [];
       this.state.peakPosition = null;
       this.state.bottomPosition = null;
       
       return repData;
     }
 
-    // Continuous form checking
     this.checkForm(keypoints);
-
     return null;
   }
 
-  private createRepData(keypoints: Keypoint[]): RepData {
+  private checkRepByAngle(
+    angle: number, 
+    thresholds: { upAngle: number; downAngle: number; minAngleChange: number },
+    now: number
+  ): boolean {
+    const isInverted = this.currentExercise === 'pullups' || this.currentExercise === 'muscleup';
+    
+    // Check for sufficient angle change from baseline
+    if (this.state.baselineAngle !== null) {
+      const changeFromBaseline = Math.abs(angle - this.state.baselineAngle);
+      if (changeFromBaseline < thresholds.minAngleChange * 0.5 && this.state.phase === 'ready') {
+        return false; // Not enough movement yet
+      }
+    }
+
+    if (isInverted) {
+      // Pull-ups: arms start extended (high angle), pull up (low angle), return
+      switch (this.state.phase) {
+        case 'ready':
+          if (angle < thresholds.upAngle) {
+            this.state.phase = 'up';
+            this.state.repStartTime = now;
+            this.state.lastPhaseChangeTime = now;
+          }
+          break;
+        case 'up':
+          if (angle > thresholds.downAngle) {
+            this.state.phase = 'ready';
+            this.state.lastPhaseChangeTime = now;
+            return true;
+          }
+          break;
+      }
+    } else {
+      // Push-ups, etc: arms start extended (high angle), go down (low angle), return
+      switch (this.state.phase) {
+        case 'ready':
+          if (angle < thresholds.downAngle) {
+            this.state.phase = 'down';
+            this.state.repStartTime = now;
+            this.state.lastPhaseChangeTime = now;
+            this.state.bottomPosition = this.lastKeypoints;
+          }
+          break;
+        case 'down':
+          if (angle > thresholds.upAngle) {
+            this.state.phase = 'ready';
+            this.state.lastPhaseChangeTime = now;
+            this.state.peakPosition = this.lastKeypoints;
+            return true;
+          }
+          break;
+      }
+    }
+
+    return false;
+  }
+
+  private checkRepByPosition(
+    yPosition: number,
+    bodyHeight: number,
+    thresholds: { downThreshold: number; upThreshold: number },
+    now: number
+  ): boolean {
+    if (this.state.baselineY === null) return false;
+
+    // Need enough Y history to establish range
+    if (this.state.yHistory.length < 10) return false;
+
+    const yRange = this.state.maxY - this.state.minY;
+    
+    // Require minimum movement (as ratio of body height)
+    if (yRange < bodyHeight * MIN_Y_CHANGE_RATIO) return false;
+
+    // Normalize current position within the observed range
+    const normalizedY = (yPosition - this.state.minY) / yRange;
+
+    const isInverted = this.currentExercise === 'pullups' || this.currentExercise === 'muscleup';
+
+    if (isInverted) {
+      // Pull-ups: start low (high Y), go up (low Y), return
+      switch (this.state.phase) {
+        case 'ready':
+          if (normalizedY < thresholds.upThreshold) {
+            this.state.phase = 'up';
+            this.state.repStartTime = now;
+            this.state.lastPhaseChangeTime = now;
+          }
+          break;
+        case 'up':
+          if (normalizedY > thresholds.downThreshold) {
+            this.state.phase = 'ready';
+            this.state.lastPhaseChangeTime = now;
+            return true;
+          }
+          break;
+      }
+    } else {
+      // Push-ups: start high (low Y), go down (high Y), return
+      switch (this.state.phase) {
+        case 'ready':
+          if (normalizedY > thresholds.downThreshold) {
+            this.state.phase = 'down';
+            this.state.repStartTime = now;
+            this.state.lastPhaseChangeTime = now;
+          }
+          break;
+        case 'down':
+          if (normalizedY < thresholds.upThreshold) {
+            this.state.phase = 'ready';
+            this.state.lastPhaseChangeTime = now;
+            return true;
+          }
+          break;
+      }
+    }
+
+    return false;
+  }
+
+  private createRepData(keypoints: Keypoint[], duration: number): RepData {
     const jointAngles = getJointAngles(keypoints);
     const rom = this.calculateROM();
     const formScore = this.calculateFormScore(keypoints, jointAngles, rom);
-    const isValid = this.isRepValid(rom, formScore);
+    const isValid = this.isRepValid(rom, formScore, duration);
 
     return {
       repNumber: this.repCount + 1,
       timestamp: Date.now(),
-      duration: Date.now() - this.state.repStartTime,
+      duration,
       isValid,
       formScore,
       jointAngles,
@@ -277,56 +586,52 @@ class ExerciseDetectionService {
 
   private calculateROM(): number {
     const thresholds = EXERCISE_THRESHOLDS[this.currentExercise];
-    if (!thresholds || !('upAngle' in thresholds) || !('downAngle' in thresholds)) {
-      return 100;
+    if (!thresholds) return 100;
+
+    if (this.currentPerspective === 'side' && thresholds.side) {
+      const idealRange = Math.abs(thresholds.side.upAngle - thresholds.side.downAngle);
+      const actualRange = Math.abs(this.state.maxAngle - this.state.minAngle);
+      return Math.min(100, Math.max(0, (actualRange / idealRange) * 100));
+    } else if (this.currentPerspective === 'front') {
+      const range = this.state.maxY - this.state.minY;
+      const expectedRange = 80;
+      return Math.min(100, Math.max(0, (range / expectedRange) * 100));
     }
 
-    const idealRange = Math.abs(thresholds.upAngle - thresholds.downAngle);
-    const actualRange = Math.abs(this.state.maxAngle - this.state.minAngle);
-    
-    return Math.min(100, (actualRange / idealRange) * 100);
+    return 70; // Default
   }
 
   private calculateFormScore(keypoints: Keypoint[], angles: JointAngles, rom: number): number {
     let score = 100;
 
-    // Deduct for ROM issues
-    if (rom < 70) {
-      score -= (70 - rom) * 0.5;
+    const thresholds = EXERCISE_THRESHOLDS[this.currentExercise];
+    const minROM = thresholds?.minROM || 50;
+    
+    if (rom < minROM) {
+      score -= (minROM - rom) * 0.4;
     }
 
-    // Check exercise-specific form
-    switch (this.currentExercise) {
-      case 'pushups': {
-        // Check body alignment
-        const alignmentScore = checkBodyAlignment(keypoints);
-        if (alignmentScore < 80) {
-          score -= (80 - alignmentScore) * 0.3;
-        }
-        break;
-      }
-
-      case 'squats': {
-        // Check knee tracking
-        if (angles.leftKnee && angles.rightKnee) {
-          const kneeSymmetry = Math.abs(angles.leftKnee - angles.rightKnee);
-          if (kneeSymmetry > 15) {
-            score -= kneeSymmetry * 0.2;
+    if (this.currentPerspective === 'side') {
+      switch (this.currentExercise) {
+        case 'pushups': {
+          const alignmentScore = checkBodyAlignment(keypoints);
+          if (alignmentScore < 70) {
+            score -= (70 - alignmentScore) * 0.3;
           }
+          break;
         }
-        break;
-      }
-
-      case 'deadlift': {
-        // Check spine angle
-        if (angles.spine && angles.spine > 20) {
-          score -= (angles.spine - 20) * 0.5;
+        case 'squats': {
+          if (angles.leftKnee && angles.rightKnee) {
+            const kneeSymmetry = Math.abs(angles.leftKnee - angles.rightKnee);
+            if (kneeSymmetry > 20) {
+              score -= kneeSymmetry * 0.2;
+            }
+          }
+          break;
         }
-        break;
       }
     }
 
-    // Deduct for form issues
     score -= this.state.formIssues.filter(i => i.severity === 'major').length * 10;
     score -= this.state.formIssues.filter(i => i.severity === 'moderate').length * 5;
     score -= this.state.formIssues.filter(i => i.severity === 'minor').length * 2;
@@ -334,56 +639,39 @@ class ExerciseDetectionService {
     return Math.max(0, Math.min(100, score));
   }
 
-  private isRepValid(rom: number, formScore: number): boolean {
+  private isRepValid(rom: number, formScore: number, duration: number): boolean {
     const thresholds = EXERCISE_THRESHOLDS[this.currentExercise];
-    const minROM = thresholds && 'minROM' in thresholds ? thresholds.minROM : 70;
+    const minROM = thresholds?.minROM || 50;
     
-    return rom >= minROM && formScore >= 50 && 
-           this.state.formIssues.filter(i => i.severity === 'major').length === 0;
+    const romValid = rom >= minROM * 0.6;
+    const formValid = formScore >= 50;
+    const durationValid = duration >= MIN_REP_DURATION_MS;
+    const noMajorIssues = this.state.formIssues.filter(i => i.severity === 'major').length === 0;
+    
+    return romValid && formValid && durationValid && noMajorIssues;
   }
 
   private checkForm(keypoints: Keypoint[]): void {
+    if (this.currentPerspective !== 'side') return;
+
     const getKP = (name: keyof typeof KEYPOINT_INDICES) =>
       poseDetectionService.getKeypoint(keypoints, name);
 
     switch (this.currentExercise) {
       case 'pushups': {
-        // Check body alignment
         const alignmentScore = checkBodyAlignment(keypoints);
-        if (alignmentScore < 70) {
+        if (alignmentScore < 50) {
           this.addFormIssue({
             type: 'alignment',
-            severity: alignmentScore < 50 ? 'major' : 'moderate',
+            severity: alignmentScore < 30 ? 'major' : 'moderate',
             message: 'Keep your body in a straight line',
-            recommendation: 'Engage your core and glutes to maintain a plank position',
+            recommendation: 'Engage your core and glutes',
           });
-        }
-
-        // Check elbow angle from body
-        const leftShoulder = getKP('leftShoulder');
-        const rightShoulder = getKP('rightShoulder');
-        const leftElbow = getKP('leftElbow');
-        const rightElbow = getKP('rightElbow');
-        
-        if (leftShoulder && rightShoulder && leftElbow && rightElbow) {
-          const shoulderWidth = Math.abs(rightShoulder.x - leftShoulder.x);
-          const elbowWidth = Math.abs(rightElbow.x - leftElbow.x);
-          const elbowFlare = (elbowWidth / shoulderWidth) - 1;
-          
-          if (elbowFlare > 0.5) {
-            this.addFormIssue({
-              type: 'elbowFlare',
-              severity: 'moderate',
-              message: 'Elbows flaring out too much',
-              recommendation: 'Keep elbows at 45-degree angle from body',
-            });
-          }
         }
         break;
       }
 
       case 'squats': {
-        // Check knee cave
         const leftKnee = getKP('leftKnee');
         const rightKnee = getKP('rightKnee');
         const leftAnkle = getKP('leftAnkle');
@@ -393,7 +681,7 @@ class ExerciseDetectionService {
           const ankleWidth = Math.abs(rightAnkle.x - leftAnkle.x);
           const kneeWidth = Math.abs(rightKnee.x - leftKnee.x);
           
-          if (kneeWidth < ankleWidth * 0.8) {
+          if (kneeWidth < ankleWidth * 0.6) {
             this.addFormIssue({
               type: 'kneeCave',
               severity: 'major',
@@ -402,93 +690,43 @@ class ExerciseDetectionService {
             });
           }
         }
-
-        // Check forward lean
-        const shoulder = getKP('leftShoulder') || getKP('rightShoulder');
-        const hip = getKP('leftHip') || getKP('rightHip');
-        
-        if (shoulder && hip) {
-          const forwardLean = shoulder.x - hip.x;
-          if (Math.abs(forwardLean) > 100) {
-            this.addFormIssue({
-              type: 'forwardLean',
-              severity: 'moderate',
-              message: 'Excessive forward lean',
-              recommendation: 'Keep chest up and weight on mid-foot',
-            });
-          }
-        }
-        break;
-      }
-
-      case 'deadlift': {
-        // Check for rounded back
-        const nose = getKP('nose');
-        const shoulder = getKP('leftShoulder') || getKP('rightShoulder');
-        const hip = getKP('leftHip') || getKP('rightHip');
-
-        if (nose && shoulder && hip) {
-          const shoulderMid = shoulder;
-          const spineAngle = Math.abs(
-            Math.atan2(hip.y - shoulderMid.y, hip.x - shoulderMid.x) * (180 / Math.PI)
-          );
-          
-          if (spineAngle < 60 || spineAngle > 120) {
-            this.addFormIssue({
-              type: 'roundedBack',
-              severity: 'major',
-              message: 'Keep spine neutral',
-              recommendation: 'Maintain flat back throughout the lift',
-            });
-          }
-        }
-        break;
-      }
-
-      case 'pullups': {
-        // Check for kipping
-        const shoulder = getKP('leftShoulder') || getKP('rightShoulder');
-        const hip = getKP('leftHip') || getKP('rightHip');
-        
-        if (shoulder && hip && this.lastKeypoints) {
-          const prevHip = poseDetectionService.getKeypoint(this.lastKeypoints, 'leftHip') ||
-                          poseDetectionService.getKeypoint(this.lastKeypoints, 'rightHip');
-          
-          if (prevHip) {
-            const horizontalMovement = Math.abs(hip.x - prevHip.x);
-            if (horizontalMovement > 20) {
-              this.addFormIssue({
-                type: 'kipping',
-                severity: 'minor',
-                message: 'Minimize body swing',
-                recommendation: 'Use controlled movement, avoid kipping',
-              });
-            }
-          }
-        }
         break;
       }
     }
   }
 
   private addFormIssue(issue: FormIssue): void {
-    // Avoid duplicate issues
     if (!this.state.formIssues.find(i => i.type === issue.type)) {
       this.state.formIssues.push(issue);
     }
   }
 
-  // Get current state info for UI
-  getCurrentState(): { phase: ExercisePhase; repCount: number; formIssues: FormIssue[] } {
+  getCurrentState(): { 
+    phase: ExercisePhase; 
+    repCount: number; 
+    formIssues: FormIssue[];
+    perspective: CameraPerspective;
+    isCalibrated: boolean;
+  } {
     return {
       phase: this.state.phase,
       repCount: this.repCount,
       formIssues: [...this.state.formIssues],
+      perspective: this.currentPerspective,
+      isCalibrated: this.state.phase !== 'calibrating',
     };
   }
 
   getRepCount(): number {
     return this.repCount;
+  }
+
+  getPerspective(): CameraPerspective {
+    return this.currentPerspective;
+  }
+
+  isCalibrated(): boolean {
+    return this.state.phase !== 'calibrating';
   }
 }
 

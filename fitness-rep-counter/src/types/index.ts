@@ -17,12 +17,17 @@ export interface Exercise {
   keyPoints: string[];
 }
 
+// Workout Mode
+export type WorkoutMode = 'sets' | 'timed';
+
 // Workout Configuration
 export interface WorkoutConfig {
   exercise: ExerciseType;
+  mode: WorkoutMode;
   sets: number;
   targetReps: number;
   restPeriod: number; // in seconds
+  timedDuration: number; // in seconds, for timed mode
 }
 
 // Rep Data
@@ -126,6 +131,9 @@ export interface FormIssue {
   message: string;
   recommendation: string;
 }
+
+// Camera Perspective Types
+export type CameraPerspective = 'front' | 'side' | 'unknown';
 
 // Speech Settings
 export interface SpeechSettings {

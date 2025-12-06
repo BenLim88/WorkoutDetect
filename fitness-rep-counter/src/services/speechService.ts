@@ -46,13 +46,19 @@ class SpeechService {
     return { ...this.settings };
   }
 
-  speak(text: string, priority: 'high' | 'normal' | 'low' = 'normal'): void {
+  speak(text: string, priority: 'high' | 'normal' | 'low' = 'normal', interrupt: boolean = false): void {
     if (!this.settings.enabled || !this.synthesis) return;
 
     if (priority === 'high') {
-      // Cancel current speech for high priority messages
-      this.synthesis.cancel();
-      this.messageQueue = [text];
+      if (interrupt) {
+        // Only cancel current speech if explicitly requested
+        this.synthesis.cancel();
+        this.isSpeaking = false;
+        this.messageQueue = [text];
+      } else {
+        // High priority but don't interrupt - add to front of queue
+        this.messageQueue.unshift(text);
+      }
     } else if (priority === 'low') {
       // Add to queue
       this.messageQueue.push(text);
@@ -127,11 +133,13 @@ class SpeechService {
   }
 
   announceExerciseStart(exercise: string): void {
-    this.speak(`Starting ${exercise}. Get ready!`, 'high');
+    // Use interrupt to clear any previous messages
+    this.speak(`Starting ${exercise}. Get ready!`, 'high', true);
   }
 
   announceCountdown(count: number): void {
-    this.speak(count.toString(), 'high');
+    // Don't interrupt - let previous announcements finish
+    this.speak(count.toString(), 'high', false);
   }
 
   announceFormIssue(message: string): void {
