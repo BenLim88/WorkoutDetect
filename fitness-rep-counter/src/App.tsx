@@ -4,12 +4,10 @@ import ExerciseSelector from './components/ExerciseSelector';
 import WorkoutDisplay from './components/WorkoutDisplay';
 import WorkoutSummary from './components/WorkoutSummary';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
-import { RepData, WorkoutPhase } from './types';
+import { RepData } from './types';
 import {
   Activity,
   BarChart3,
-  Settings,
-  Info,
   Moon,
   Sun,
   Volume2,
@@ -49,7 +47,8 @@ function App() {
     setRestTime,
   } = useWorkoutStore();
 
-  const isReady = isCameraReady && isPoseDetectionReady;
+  // Camera and pose detection ready state is checked in WorkoutDisplay
+  void (isCameraReady && isPoseDetectionReady);
 
   const handleStartWorkout = useCallback(() => {
     startWorkout();

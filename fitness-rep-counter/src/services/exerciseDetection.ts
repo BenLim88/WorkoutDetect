@@ -1,6 +1,6 @@
 import { ExerciseType, Keypoint, RepData, JointAngles, FormIssue } from '../types';
 import { poseDetectionService, KEYPOINT_INDICES } from './poseDetection';
-import { calculateAngle, getJointAngles, checkBodyAlignment, getMidpoint } from '../utils/angleCalculations';
+import { calculateAngle, getJointAngles, checkBodyAlignment } from '../utils/angleCalculations';
 
 // Exercise phase states
 type ExercisePhase = 'up' | 'down' | 'neutral';
