@@ -308,3 +308,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ---
 
 Made with 💪 for fitness enthusiasts everywhere
+
+<!-- Last deployment: December 6, 2025 -->
