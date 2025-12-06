@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ExerciseType } from '../types';
 import { exercises, getExerciseList } from '../data/exercises';
 import { 
@@ -6,18 +6,25 @@ import {
   Target, 
   Timer,
   ChevronRight,
-  Zap
+  Zap,
+  Camera,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
+import CameraPreview from './CameraPreview';
+import type { ZoomLevel } from '../hooks/useCamera';
 
 interface ExerciseSelectorProps {
   selectedExercise: ExerciseType;
   sets: number;
   reps: number;
   restPeriod: number;
+  zoomLevel: ZoomLevel;
   onExerciseChange: (exercise: ExerciseType) => void;
   onSetsChange: (sets: number) => void;
   onRepsChange: (reps: number) => void;
   onRestPeriodChange: (seconds: number) => void;
+  onZoomChange: (level: ZoomLevel) => void;
   onStartWorkout: () => void;
   isReady: boolean;
 }
@@ -27,13 +34,17 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
   sets,
   reps,
   restPeriod,
+  zoomLevel,
   onExerciseChange,
   onSetsChange,
   onRepsChange,
   onRestPeriodChange,
+  onZoomChange,
   onStartWorkout,
   isReady,
 }) => {
+  const [showCameraPreview, setShowCameraPreview] = useState(false);
+  const [isCameraReady, setIsCameraReady] = useState(false);
   const exerciseList = getExerciseList();
   const selected = exercises[selectedExercise];
 
@@ -175,6 +186,39 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
             <div className="text-xs text-gray-400">Est. Calories</div>
           </div>
         </div>
+      </div>
+
+      {/* Camera Setup Section */}
+      <div className="mb-6">
+        <button
+          onClick={() => setShowCameraPreview(!showCameraPreview)}
+          className="w-full flex items-center justify-between p-4 bg-gray-800/50 rounded-xl hover:bg-gray-800 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Camera className="w-5 h-5 text-blue-400" />
+            <div className="text-left">
+              <div className="font-medium">Camera Setup</div>
+              <div className="text-sm text-gray-400">
+                Current zoom: {zoomLevel}x {isCameraReady && showCameraPreview ? '• Camera ready' : ''}
+              </div>
+            </div>
+          </div>
+          {showCameraPreview ? (
+            <ChevronUp className="w-5 h-5 text-gray-400" />
+          ) : (
+            <ChevronDown className="w-5 h-5 text-gray-400" />
+          )}
+        </button>
+
+        {showCameraPreview && (
+          <div className="mt-3">
+            <CameraPreview
+              zoomLevel={zoomLevel}
+              onZoomChange={onZoomChange}
+              onReady={setIsCameraReady}
+            />
+          </div>
+        )}
       </div>
 
       {/* Start Button */}
