@@ -203,6 +203,9 @@ body {
 
 .border { border-width: 1px; }
 .border-2 { border-width: 2px; }
+.border-4 { border-width: 4px; }
+.border-t-transparent { border-top-color: transparent; }
+.border-blue-500 { border-color: #3b82f6; }
 .border-b { border-bottom-width: 1px; }
 .border-t { border-top-width: 1px; }
 .border-gray-600 { border-color: #4b5563; }
@@ -336,4 +339,13 @@ body {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: .5; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
 }

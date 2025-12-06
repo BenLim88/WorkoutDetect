@@ -127,6 +127,9 @@ export interface FormIssue {
   recommendation: string;
 }
 
+// Camera Perspective Types
+export type CameraPerspective = 'front' | 'side' | 'unknown';
+
 // Speech Settings
 export interface SpeechSettings {
   enabled: boolean;

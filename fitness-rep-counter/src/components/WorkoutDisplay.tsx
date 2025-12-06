@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { ExerciseType, RepData, WorkoutPhase } from '../types';
 import { exercises } from '../data/exercises';
 import { useCamera, ZoomLevel } from '../hooks/useCamera';
@@ -15,6 +15,18 @@ import {
   AlertTriangle,
   CheckCircle
 } from 'lucide-react';
+
+// Wake Lock API type declaration
+interface WakeLockSentinel {
+  released: boolean;
+  release(): Promise<void>;
+  addEventListener(type: 'release', listener: () => void): void;
+  removeEventListener(type: 'release', listener: () => void): void;
+}
+
+interface WakeLockAPI {
+  request(type: 'screen'): Promise<WakeLockSentinel>;
+}
 
 interface WorkoutDisplayProps {
   exercise: ExerciseType;
@@ -66,8 +78,69 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
   const [isSpeechEnabled, setIsSpeechEnabled] = useState(true);
   const [lastFormIssue, setLastFormIssue] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
+  const [isWaitingForCamera, setIsWaitingForCamera] = useState(true);
+  const [countdownStarted, setCountdownStarted] = useState(false);
+  
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   const exerciseData = exercises[exercise];
+
+  // Wake Lock - keep screen on during exercise
+  const requestWakeLock = useCallback(async () => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const nav = navigator as any;
+      if ('wakeLock' in navigator && nav.wakeLock) {
+        const wakeLock = nav.wakeLock as WakeLockAPI;
+        wakeLockRef.current = await wakeLock.request('screen');
+        console.log('Wake Lock acquired');
+        
+        wakeLockRef.current.addEventListener('release', () => {
+          console.log('Wake Lock released');
+        });
+      }
+    } catch (err) {
+      console.log('Wake Lock not supported or failed:', err);
+    }
+  }, []);
+
+  const releaseWakeLock = useCallback(async () => {
+    if (wakeLockRef.current && !wakeLockRef.current.released) {
+      try {
+        await wakeLockRef.current.release();
+        wakeLockRef.current = null;
+      } catch (err) {
+        console.log('Failed to release Wake Lock:', err);
+      }
+    }
+  }, []);
+
+  // Request wake lock when workout starts, release when it ends
+  useEffect(() => {
+    if (phase === 'exercising' || phase === 'countdown' || phase === 'resting') {
+      requestWakeLock();
+    }
+    
+    return () => {
+      releaseWakeLock();
+    };
+  }, [phase, requestWakeLock, releaseWakeLock]);
+
+  // Re-acquire wake lock when page becomes visible again
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        if (phase === 'exercising' || phase === 'countdown' || phase === 'resting') {
+          requestWakeLock();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [phase, requestWakeLock]);
 
   // Camera hook
   const {
@@ -200,21 +273,50 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
     return () => stopDetection();
   }, [isCameraReady, isPoseReady, startDetection, stopDetection]);
 
-  // Handle phase changes
+  // Track when camera and pose are ready to start countdown
+  useEffect(() => {
+    if (isCameraReady && isPoseReady && phase === 'countdown' && isWaitingForCamera) {
+      setIsWaitingForCamera(false);
+    }
+  }, [isCameraReady, isPoseReady, phase, isWaitingForCamera]);
+
+  // Handle phase changes - wait for camera before starting countdown
   useEffect(() => {
     if (phase === 'countdown') {
-      countdownTimer.reset(countdownTime);
-      countdownTimer.start();
-      speechService.announceExerciseStart(exerciseData.name);
+      // Only start countdown when camera and pose detection are ready
+      if (isCameraReady && isPoseReady && !countdownStarted) {
+        setCountdownStarted(true);
+        countdownTimer.reset(countdownTime);
+        countdownTimer.start();
+        speechService.announceExerciseStart(exerciseData.name);
+      } else if (!isCameraReady || !isPoseReady) {
+        // Still waiting for camera/pose to initialize
+        setIsWaitingForCamera(true);
+      }
     } else if (phase === 'resting') {
       restTimer.reset(restPeriod);
       restTimer.start();
       speechService.announceRestPeriod(restPeriod);
+      setCountdownStarted(false); // Reset for next set
     } else if (phase === 'workoutComplete') {
       speechService.announceWorkoutComplete();
       onCompleteWorkout();
+      releaseWakeLock();
+    } else if (phase === 'exercising') {
+      setIsWaitingForCamera(false);
     }
-  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [phase, isCameraReady, isPoseReady, countdownStarted]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Start countdown once camera becomes ready (if we were waiting)
+  useEffect(() => {
+    if (phase === 'countdown' && isCameraReady && isPoseReady && !countdownStarted && isWaitingForCamera) {
+      setCountdownStarted(true);
+      setIsWaitingForCamera(false);
+      countdownTimer.reset(countdownTime);
+      countdownTimer.start();
+      speechService.announceExerciseStart(exerciseData.name);
+    }
+  }, [isCameraReady, isPoseReady, phase, countdownStarted, isWaitingForCamera]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Toggle speech
   const toggleSpeech = useCallback(() => {
@@ -271,11 +373,28 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
       {phase === 'countdown' && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
           <div className="text-center">
-            <div className="text-8xl font-bold text-white mb-4 animate-pulse">
-              {countdownTimer.time}
-            </div>
-            <div className="text-2xl text-gray-400">Get Ready!</div>
-            <div className="text-lg text-blue-400 mt-2">{exerciseData.name}</div>
+            {isWaitingForCamera || !countdownStarted ? (
+              <>
+                <div className="text-4xl font-bold text-white mb-4 animate-pulse">
+                  Initializing...
+                </div>
+                <div className="text-xl text-gray-400 mb-2">
+                  {!isCameraReady ? 'Starting camera...' : 'Loading pose detection...'}
+                </div>
+                <div className="text-lg text-blue-400 mt-2">{exerciseData.name}</div>
+                <div className="mt-6">
+                  <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-8xl font-bold text-white mb-4 animate-pulse">
+                  {countdownTimer.time}
+                </div>
+                <div className="text-2xl text-gray-400">Get Ready!</div>
+                <div className="text-lg text-blue-400 mt-2">{exerciseData.name}</div>
+              </>
+            )}
           </div>
         </div>
       )}
