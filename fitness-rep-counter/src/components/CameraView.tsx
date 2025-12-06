@@ -1,5 +1,8 @@
 import React, { useEffect, useRef } from 'react';
-import { Camera, CameraOff, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import { Camera, CameraOff, RotateCcw, Volume2, VolumeX, ZoomIn, ZoomOut } from 'lucide-react';
+import type { ZoomLevel } from '../hooks/useCamera';
+
+const ZOOM_LEVELS: ZoomLevel[] = [1, 1.5, 2, 2.5, 3];
 
 interface CameraViewProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -18,6 +21,9 @@ interface CameraViewProps {
   currentPhase?: string;
   isSpeechEnabled?: boolean;
   onToggleSpeech?: () => void;
+  zoomLevel?: ZoomLevel;
+  onZoomChange?: (level: ZoomLevel) => void;
+  supportsHardwareZoom?: boolean;
 }
 
 const CameraView: React.FC<CameraViewProps> = ({
@@ -37,8 +43,27 @@ const CameraView: React.FC<CameraViewProps> = ({
   currentPhase = '',
   isSpeechEnabled = true,
   onToggleSpeech,
+  zoomLevel = 1,
+  onZoomChange,
+  supportsHardwareZoom = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const handleZoomIn = () => {
+    if (!onZoomChange) return;
+    const currentIndex = ZOOM_LEVELS.indexOf(zoomLevel);
+    if (currentIndex < ZOOM_LEVELS.length - 1) {
+      onZoomChange(ZOOM_LEVELS[currentIndex + 1]);
+    }
+  };
+
+  const handleZoomOut = () => {
+    if (!onZoomChange) return;
+    const currentIndex = ZOOM_LEVELS.indexOf(zoomLevel);
+    if (currentIndex > 0) {
+      onZoomChange(ZOOM_LEVELS[currentIndex - 1]);
+    }
+  };
 
   useEffect(() => {
     onStart();
@@ -61,11 +86,17 @@ const CameraView: React.FC<CameraViewProps> = ({
         autoPlay
       />
 
-      {/* Canvas for drawing */}
-      <canvas
-        ref={canvasRef}
-        className={`w-full h-full object-cover ${facingMode === 'user' ? 'scale-x-[-1]' : ''}`}
-      />
+      {/* Canvas for drawing - apply CSS zoom when hardware zoom not available */}
+      <div className="w-full h-full overflow-hidden">
+        <canvas
+          ref={canvasRef}
+          className={`w-full h-full object-cover ${facingMode === 'user' ? 'scale-x-[-1]' : ''}`}
+          style={{
+            transform: `${facingMode === 'user' ? 'scaleX(-1)' : ''} scale(${supportsHardwareZoom ? 1 : zoomLevel})`,
+            transformOrigin: 'center center',
+          }}
+        />
+      </div>
 
       {/* Loading/Error state */}
       {!isReady && (
@@ -131,6 +162,31 @@ const CameraView: React.FC<CameraViewProps> = ({
             </div>
           )}
         </>
+      )}
+
+      {/* Zoom Controls - Right Side */}
+      {onZoomChange && (
+        <div className="absolute right-4 top-1/2 transform -translate-y-1/2 flex flex-col gap-2">
+          <button
+            onClick={handleZoomIn}
+            disabled={zoomLevel >= 3}
+            className="p-3 bg-black/50 backdrop-blur-sm rounded-full hover:bg-black/70 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Zoom In"
+          >
+            <ZoomIn className="w-5 h-5" />
+          </button>
+          <div className="bg-black/70 backdrop-blur-sm rounded-lg px-2 py-1 text-center">
+            <span className="text-sm font-medium">{zoomLevel}x</span>
+          </div>
+          <button
+            onClick={handleZoomOut}
+            disabled={zoomLevel <= 1}
+            className="p-3 bg-black/50 backdrop-blur-sm rounded-full hover:bg-black/70 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Zoom Out"
+          >
+            <ZoomOut className="w-5 h-5" />
+          </button>
+        </div>
       )}
 
       {/* Controls */}
