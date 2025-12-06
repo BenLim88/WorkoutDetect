@@ -49,9 +49,9 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
   const selected = exercises[selectedExercise];
 
   const difficultyColors = {
-    beginner: 'bg-green-500',
-    intermediate: 'bg-yellow-500',
-    advanced: 'bg-red-500',
+    beginner: 'bg-green-500 text-white',
+    intermediate: 'bg-yellow-500 text-gray-900',
+    advanced: 'bg-red-500 text-white',
   };
 
   return (

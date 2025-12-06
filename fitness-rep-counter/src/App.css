@@ -500,21 +500,21 @@ input:focus, select:focus, textarea:focus {
   background-color: rgba(255, 255, 255, 0.95) !important;
 }
 
-/* Text colors */
+/* Text colors - improved contrast for light mode */
 .light-mode .text-white {
   color: #0f172a !important;
 }
 
 .light-mode .text-gray-300 {
-  color: #334155 !important;
+  color: #1e293b !important;
 }
 
 .light-mode .text-gray-400 {
-  color: #475569 !important;
+  color: #334155 !important;
 }
 
 .light-mode .text-gray-500 {
-  color: #64748b !important;
+  color: #475569 !important;
 }
 
 /* Border colors */
@@ -649,5 +649,81 @@ input:focus, select:focus, textarea:focus {
 
 /* Footer */
 .light-mode footer {
-  color: #64748b !important;
+  color: #475569 !important;
+}
+
+/* Preserve badge text colors in light mode */
+.light-mode .bg-green-500.text-white,
+.light-mode .bg-red-500.text-white,
+.light-mode .bg-blue-500.text-white,
+.light-mode .bg-blue-600.text-white {
+  color: #ffffff !important;
+}
+
+.light-mode .bg-yellow-500.text-gray-900 {
+  color: #111827 !important;
+}
+
+/* Preserve colored text in light mode */
+.light-mode .text-green-400 {
+  color: #16a34a !important;
+}
+
+.light-mode .text-yellow-400 {
+  color: #ca8a04 !important;
+}
+
+.light-mode .text-red-400 {
+  color: #dc2626 !important;
+}
+
+.light-mode .text-blue-400 {
+  color: #2563eb !important;
+}
+
+.light-mode .text-purple-400 {
+  color: #9333ea !important;
+}
+
+.light-mode .text-orange-400 {
+  color: #ea580c !important;
+}
+
+.light-mode .text-emerald-400 {
+  color: #059669 !important;
+}
+
+.light-mode .text-pink-400 {
+  color: #db2777 !important;
+}
+
+/* Improve secondary text labels contrast */
+.light-mode .text-xs.text-gray-400,
+.light-mode .text-sm.text-gray-400 {
+  color: #475569 !important;
+}
+
+.light-mode .text-xs.text-gray-500,
+.light-mode .text-sm.text-gray-500 {
+  color: #475569 !important;
+}
+
+/* Table header text */
+.light-mode tr.text-gray-400 {
+  color: #334155 !important;
+}
+
+/* Countdown and overlay text - keep dark for readability on light overlay */
+.light-mode .text-2xl.text-gray-400,
+.light-mode .text-xl.text-gray-400 {
+  color: #334155 !important;
+}
+
+/* Back button styling */
+.light-mode .back-button {
+  color: #475569 !important;
+}
+
+.light-mode .back-button:hover {
+  color: #0f172a !important;
 }
