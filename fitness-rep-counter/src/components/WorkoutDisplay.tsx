@@ -74,6 +74,9 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
     startCamera,
     switchCamera,
     facingMode,
+    zoomLevel,
+    zoomCapabilities,
+    setZoomLevel,
   } = useCamera({ facingMode: 'user' });
 
   // Handle rep completion
@@ -242,6 +245,9 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
         formScore={avgFormScore}
         isSpeechEnabled={isSpeechEnabled}
         onToggleSpeech={toggleSpeech}
+        zoomLevel={zoomLevel}
+        onZoomChange={setZoomLevel}
+        supportsHardwareZoom={zoomCapabilities.supportsHardwareZoom}
       />
 
       {/* Countdown Overlay */}

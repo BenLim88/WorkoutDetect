@@ -6,6 +6,15 @@ interface UseCameraOptions {
   height?: number;
 }
 
+export type ZoomLevel = 1 | 1.5 | 2 | 2.5 | 3;
+
+interface ZoomCapabilities {
+  min: number;
+  max: number;
+  step: number;
+  supportsHardwareZoom: boolean;
+}
+
 interface UseCameraReturn {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -15,6 +24,9 @@ interface UseCameraReturn {
   stopCamera: () => void;
   switchCamera: () => Promise<void>;
   facingMode: 'user' | 'environment';
+  zoomLevel: ZoomLevel;
+  zoomCapabilities: ZoomCapabilities;
+  setZoomLevel: (level: ZoomLevel) => void;
 }
 
 export const useCamera = (options: UseCameraOptions = {}): UseCameraReturn => {
@@ -31,6 +43,13 @@ export const useCamera = (options: UseCameraOptions = {}): UseCameraReturn => {
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>(initialFacingMode);
+  const [zoomLevel, setZoomLevelState] = useState<ZoomLevel>(1);
+  const [zoomCapabilities, setZoomCapabilities] = useState<ZoomCapabilities>({
+    min: 1,
+    max: 3,
+    step: 0.5,
+    supportsHardwareZoom: false,
+  });
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -69,6 +88,25 @@ export const useCamera = (options: UseCameraOptions = {}): UseCameraReturn => {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
 
+      // Check for hardware zoom capabilities
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack) {
+        try {
+          const capabilities = videoTrack.getCapabilities() as MediaTrackCapabilities & { zoom?: { min: number; max: number; step: number } };
+          if (capabilities.zoom) {
+            setZoomCapabilities({
+              min: capabilities.zoom.min,
+              max: Math.min(capabilities.zoom.max, 3), // Cap at 3x
+              step: capabilities.zoom.step,
+              supportsHardwareZoom: true,
+            });
+          }
+        } catch {
+          // Hardware zoom not supported, use CSS fallback
+          console.log('Hardware zoom not available, using CSS zoom');
+        }
+      }
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         
@@ -105,6 +143,28 @@ export const useCamera = (options: UseCameraOptions = {}): UseCameraReturn => {
     }
   }, [facingMode, width, height, stopCamera]);
 
+  // Apply zoom level
+  const setZoomLevel = useCallback((level: ZoomLevel) => {
+    if (!streamRef.current) return;
+
+    const videoTrack = streamRef.current.getVideoTracks()[0];
+    if (!videoTrack) return;
+
+    // Try hardware zoom first
+    if (zoomCapabilities.supportsHardwareZoom) {
+      try {
+        const constraintLevel = Math.min(level, zoomCapabilities.max);
+        videoTrack.applyConstraints({
+          advanced: [{ zoom: constraintLevel } as MediaTrackConstraintSet & { zoom: number }],
+        });
+      } catch {
+        console.log('Hardware zoom failed, level will be applied via CSS');
+      }
+    }
+    
+    setZoomLevelState(level);
+  }, [zoomCapabilities]);
+
   const switchCamera = useCallback(async () => {
     const newFacingMode = facingMode === 'user' ? 'environment' : 'user';
     setFacingMode(newFacingMode);
@@ -133,5 +193,8 @@ export const useCamera = (options: UseCameraOptions = {}): UseCameraReturn => {
     stopCamera,
     switchCamera,
     facingMode,
+    zoomLevel,
+    zoomCapabilities,
+    setZoomLevel,
   };
 };
