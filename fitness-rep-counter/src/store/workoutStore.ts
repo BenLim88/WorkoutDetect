@@ -9,6 +9,7 @@ import {
   WorkoutPhase,
   TrendDataPoint,
 } from '../types';
+import type { ZoomLevel } from '../hooks/useCamera';
 
 interface WorkoutState {
   // Current workout configuration
@@ -36,12 +37,16 @@ interface WorkoutState {
   isPoseDetectionReady: boolean;
   showSettings: boolean;
   
+  // Camera settings
+  cameraZoomLevel: ZoomLevel;
+  
   // Actions
   setConfig: (config: Partial<WorkoutConfig>) => void;
   setPhase: (phase: WorkoutPhase) => void;
   setCameraReady: (ready: boolean) => void;
   setPoseDetectionReady: (ready: boolean) => void;
   setShowSettings: (show: boolean) => void;
+  setCameraZoomLevel: (level: ZoomLevel) => void;
   
   // Workout actions
   startWorkout: () => void;
@@ -92,6 +97,8 @@ export const useWorkoutStore = create<WorkoutState>()(
       isPoseDetectionReady: false,
       showSettings: false,
       
+      cameraZoomLevel: 1,
+      
       // Actions
       setConfig: (config) => set((state) => ({
         config: { ...state.config, ...config },
@@ -104,6 +111,8 @@ export const useWorkoutStore = create<WorkoutState>()(
       setPoseDetectionReady: (ready) => set({ isPoseDetectionReady: ready }),
       
       setShowSettings: (show) => set({ showSettings: show }),
+      
+      setCameraZoomLevel: (level) => set({ cameraZoomLevel: level }),
       
       startWorkout: () => {
         const { config } = get();
@@ -279,6 +288,7 @@ export const useWorkoutStore = create<WorkoutState>()(
       partialize: (state) => ({
         workoutHistory: state.workoutHistory,
         config: state.config,
+        cameraZoomLevel: state.cameraZoomLevel,
       }),
     }
   )

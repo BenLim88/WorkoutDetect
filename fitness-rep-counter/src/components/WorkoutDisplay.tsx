@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { ExerciseType, RepData, WorkoutPhase } from '../types';
 import { exercises } from '../data/exercises';
-import { useCamera } from '../hooks/useCamera';
+import { useCamera, ZoomLevel } from '../hooks/useCamera';
 import { usePoseDetection } from '../hooks/usePoseDetection';
 import { useTimer } from '../hooks/useTimer';
 import { speechService } from '../services/speechService';
@@ -26,6 +26,7 @@ interface WorkoutDisplayProps {
   countdownTime: number;
   restTime: number;
   reps: RepData[];
+  initialZoomLevel?: ZoomLevel;
   onRepComplete: (rep: RepData) => void;
   onSetComplete: () => void;
   onStartNextSet: () => void;
@@ -36,6 +37,7 @@ interface WorkoutDisplayProps {
   onPhaseChange: (phase: WorkoutPhase) => void;
   onCameraReady: (ready: boolean) => void;
   onPoseReady: (ready: boolean) => void;
+  onZoomChange?: (level: ZoomLevel) => void;
 }
 
 const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
@@ -48,6 +50,7 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
   countdownTime,
   restTime,
   reps,
+  initialZoomLevel = 1,
   onRepComplete,
   onSetComplete,
   onStartNextSet,
@@ -58,6 +61,7 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
   onPhaseChange,
   onCameraReady,
   onPoseReady,
+  onZoomChange,
 }) => {
   const [isSpeechEnabled, setIsSpeechEnabled] = useState(true);
   const [lastFormIssue, setLastFormIssue] = useState<string | null>(null);
@@ -78,6 +82,19 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
     zoomCapabilities,
     setZoomLevel,
   } = useCamera({ facingMode: 'user' });
+
+  // Apply initial zoom level when camera becomes ready
+  useEffect(() => {
+    if (isCameraReady && initialZoomLevel !== 1) {
+      setZoomLevel(initialZoomLevel);
+    }
+  }, [isCameraReady, initialZoomLevel, setZoomLevel]);
+
+  // Sync zoom changes back to parent
+  const handleZoomChange = useCallback((level: ZoomLevel) => {
+    setZoomLevel(level);
+    onZoomChange?.(level);
+  }, [setZoomLevel, onZoomChange]);
 
   // Handle rep completion
   const handleRepComplete = useCallback((rep: RepData) => {
@@ -246,7 +263,7 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
         isSpeechEnabled={isSpeechEnabled}
         onToggleSpeech={toggleSpeech}
         zoomLevel={zoomLevel}
-        onZoomChange={setZoomLevel}
+        onZoomChange={handleZoomChange}
         supportsHardwareZoom={zoomCapabilities.supportsHardwareZoom}
       />
 

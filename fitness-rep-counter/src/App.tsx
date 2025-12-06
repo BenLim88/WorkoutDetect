@@ -35,10 +35,12 @@ function App() {
     workoutHistory,
     isCameraReady,
     isPoseDetectionReady,
+    cameraZoomLevel,
     setConfig,
     setPhase,
     setCameraReady,
     setPoseDetectionReady,
+    setCameraZoomLevel,
     startWorkout,
     addRep,
     completeSet,
@@ -156,10 +158,12 @@ function App() {
             sets={config.sets}
             reps={config.targetReps}
             restPeriod={config.restPeriod}
+            zoomLevel={cameraZoomLevel}
             onExerciseChange={(exercise) => setConfig({ exercise })}
             onSetsChange={(sets) => setConfig({ sets })}
             onRepsChange={(reps) => setConfig({ targetReps: reps })}
             onRestPeriodChange={(restPeriod) => setConfig({ restPeriod })}
+            onZoomChange={setCameraZoomLevel}
             onStartWorkout={handleStartWorkout}
             isReady={true} // Will show loading state in workout display
           />
@@ -176,6 +180,7 @@ function App() {
             countdownTime={countdownTime}
             restTime={restTime}
             reps={currentReps}
+            initialZoomLevel={cameraZoomLevel}
             onRepComplete={handleRepComplete}
             onSetComplete={handleSetComplete}
             onStartNextSet={handleStartNextSet}
@@ -186,6 +191,7 @@ function App() {
             onPhaseChange={setPhase}
             onCameraReady={setCameraReady}
             onPoseReady={setPoseDetectionReady}
+            onZoomChange={setCameraZoomLevel}
           />
         )}
 
