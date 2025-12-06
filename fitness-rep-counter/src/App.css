@@ -152,6 +152,11 @@ input:focus, select:focus, textarea:focus {
   color: #1e40af !important;
 }
 
+.light-mode .exercise-card-selected .text-xs,
+.light-mode .exercise-card-selected .text-sm {
+  color: #1e40af !important;
+}
+
 /* Unselected exercise card in light mode */
 .light-mode .exercise-card {
   background-color: #ffffff !important;
@@ -160,6 +165,41 @@ input:focus, select:focus, textarea:focus {
 
 .light-mode .exercise-card:hover {
   border-color: #94a3b8 !important;
+}
+
+.light-mode .exercise-card .text-xs,
+.light-mode .exercise-card .text-sm {
+  color: #475569 !important;
+}
+
+/* All buttons with bg-gray backgrounds in light mode */
+.light-mode button[class*="bg-gray-800"] {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+.light-mode button[class*="bg-gray-800"] .text-gray-400,
+.light-mode button[class*="bg-gray-800"] .text-xs,
+.light-mode button[class*="bg-gray-800"] .text-sm {
+  color: #475569 !important;
+}
+
+/* Containers with rounded corners and gray backgrounds */
+.light-mode div[class*="bg-gray-800"],
+.light-mode div[class*="bg-gray-700"] {
+  color: #0f172a !important;
+}
+
+.light-mode div[class*="bg-gray-800"] .text-gray-400,
+.light-mode div[class*="bg-gray-700"] .text-gray-400 {
+  color: #475569 !important;
+}
+
+/* Font semibold and medium text in light mode */
+.light-mode .font-semibold,
+.light-mode .font-medium,
+.light-mode .font-bold {
+  color: #0f172a;
 }
 
 /* Ensure headings and labels are visible */
