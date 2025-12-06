@@ -8,6 +8,7 @@ import {
   RepData,
   WorkoutPhase,
   TrendDataPoint,
+  WorkoutMode,
 } from '../types';
 import type { ZoomLevel } from '../hooks/useCamera';
 
@@ -75,9 +76,11 @@ export const useWorkoutStore = create<WorkoutState>()(
       // Initial state
       config: {
         exercise: 'pushups',
+        mode: 'sets',
         sets: 3,
         targetReps: 10,
         restPeriod: 60,
+        timedDuration: 60,
       },
       
       currentSession: null,

@@ -4,7 +4,7 @@ import ExerciseSelector from './components/ExerciseSelector';
 import WorkoutDisplay from './components/WorkoutDisplay';
 import WorkoutSummary from './components/WorkoutSummary';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
-import { RepData, WorkoutPhase } from './types';
+import { RepData, WorkoutPhase, WorkoutMode } from './types';
 import {
   Activity,
   BarChart3,
@@ -169,11 +169,15 @@ function App() {
             reps={config.targetReps}
             restPeriod={config.restPeriod}
             zoomLevel={cameraZoomLevel}
+            workoutMode={config.mode}
+            timedDuration={config.timedDuration}
             onExerciseChange={(exercise) => setConfig({ exercise })}
             onSetsChange={(sets) => setConfig({ sets })}
             onRepsChange={(reps) => setConfig({ targetReps: reps })}
             onRestPeriodChange={(restPeriod) => setConfig({ restPeriod })}
             onZoomChange={setCameraZoomLevel}
+            onWorkoutModeChange={(mode: WorkoutMode) => setConfig({ mode })}
+            onTimedDurationChange={(timedDuration) => setConfig({ timedDuration })}
             onStartWorkout={handleStartWorkout}
             isReady={true} // Will show loading state in workout display
           />
@@ -185,6 +189,8 @@ function App() {
             targetReps={config.targetReps}
             totalSets={config.sets}
             restPeriod={config.restPeriod}
+            workoutMode={config.mode}
+            timedDuration={config.timedDuration}
             currentSet={currentSetIndex}
             phase={phase}
             countdownTime={countdownTime}
