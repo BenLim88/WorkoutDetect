@@ -75,7 +75,7 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
                   : 'border-gray-600 hover:border-gray-400 bg-gray-800/50'
               }`}
             >
-              <div className="text-lg font-semibold mb-1">{exercise.name}</div>
+              <div className="text-lg font-semibold mb-1 exercise-name">{exercise.name}</div>
               <span
                 className={`inline-block px-2 py-0.5 rounded-full text-xs ${
                   difficultyColors[exercise.difficulty]

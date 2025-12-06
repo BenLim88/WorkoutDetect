@@ -133,6 +133,25 @@ input:focus, select:focus, textarea:focus {
   margin: 0 auto;
 }
 
+/* Exercise card text */
+.exercise-name {
+  color: #f1f5f9;
+}
+
+.light-mode .exercise-name {
+  color: #0f172a;
+}
+
+/* Ensure headings and labels are visible */
+.exercise-selector h2,
+.exercise-selector h3,
+.exercise-selector h4,
+.exercise-selector label,
+.exercise-selector .font-medium,
+.exercise-selector .font-semibold {
+  color: var(--color-text);
+}
+
 /* Workout Summary */
 .workout-summary {
   animation: fadeIn 0.5s ease;
