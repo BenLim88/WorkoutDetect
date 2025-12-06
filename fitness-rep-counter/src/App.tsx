@@ -108,7 +108,11 @@ function App() {
   return (
     <div className={`app min-h-screen ${isDarkMode ? 'dark' : 'light'}`}>
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-gray-900/80 backdrop-blur-lg border-b border-gray-800">
+      <header className={`sticky top-0 z-50 backdrop-blur-lg border-b transition-colors ${
+        isDarkMode 
+          ? 'bg-gray-900/80 border-gray-800' 
+          : 'bg-white/90 border-slate-200'
+      }`}>
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Activity className="w-6 h-6 text-blue-500" />
@@ -118,7 +122,9 @@ function App() {
             {appView === 'home' && (
               <button
                 onClick={handleViewAnalytics}
-                className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+                className={`p-2 rounded-lg transition-colors ${
+                  isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-slate-100'
+                }`}
                 title="View Analytics"
               >
                 <BarChart3 className="w-5 h-5" />
@@ -126,7 +132,9 @@ function App() {
             )}
             <button
               onClick={() => setIsSpeechEnabled(!isSpeechEnabled)}
-              className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+              className={`p-2 rounded-lg transition-colors ${
+                isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-slate-100'
+              }`}
               title={isSpeechEnabled ? 'Mute Voice' : 'Enable Voice'}
             >
               {isSpeechEnabled ? (
@@ -137,7 +145,9 @@ function App() {
             </button>
             <button
               onClick={toggleDarkMode}
-              className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+              className={`p-2 rounded-lg transition-colors ${
+                isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-slate-100'
+              }`}
               title="Toggle Theme"
             >
               {isDarkMode ? (
@@ -212,7 +222,9 @@ function App() {
       </main>
 
       {/* Footer */}
-      <footer className="mt-auto py-4 text-center text-gray-500 text-sm">
+      <footer className={`mt-auto py-4 text-center text-sm transition-colors ${
+        isDarkMode ? 'text-gray-500' : 'text-slate-500'
+      }`}>
         <p>
           <Activity className="w-4 h-4 inline mr-1" />
           FitRep Counter - AI-Powered Workout Tracking

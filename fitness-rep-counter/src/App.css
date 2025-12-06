@@ -3,6 +3,7 @@
   --color-bg: #0f172a;
   --color-bg-secondary: #1e293b;
   --color-bg-tertiary: #334155;
+  --color-bg-gradient-end: #1e1e2e;
   --color-text: #f8fafc;
   --color-text-secondary: #94a3b8;
   --color-text-muted: #64748b;
@@ -22,6 +23,7 @@
   --color-text-secondary: #475569;
   --color-text-muted: #64748b;
   --color-border: #cbd5e1;
+  --color-bg-gradient-end: #e2e8f0;
 }
 
 * {
@@ -47,7 +49,8 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, var(--color-bg) 0%, #1e1e2e 100%);
+  background: linear-gradient(180deg, var(--color-bg) 0%, var(--color-bg-gradient-end) 100%);
+  transition: background 0.3s ease;
 }
 
 .container {
@@ -461,4 +464,190 @@ input:focus, select:focus, textarea:focus {
   footer {
     padding-bottom: env(safe-area-inset-bottom);
   }
+}
+
+/* ===== Light Mode Overrides ===== */
+.light-mode,
+.light-mode .app {
+  color: var(--color-text);
+}
+
+/* Header */
+.light-mode header {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  border-bottom-color: var(--color-border) !important;
+}
+
+/* Background colors */
+.light-mode .bg-gray-700,
+.light-mode .bg-gray-700\/30,
+.light-mode .bg-gray-700\/50 {
+  background-color: rgba(226, 232, 240, 0.8) !important;
+}
+
+.light-mode .bg-gray-800,
+.light-mode .bg-gray-800\/50 {
+  background-color: rgba(241, 245, 249, 0.9) !important;
+}
+
+.light-mode .bg-gray-900,
+.light-mode .bg-gray-900\/80,
+.light-mode .bg-gray-900\/90 {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+}
+
+.light-mode .bg-black\/80 {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+}
+
+/* Text colors */
+.light-mode .text-white {
+  color: #0f172a !important;
+}
+
+.light-mode .text-gray-300 {
+  color: #334155 !important;
+}
+
+.light-mode .text-gray-400 {
+  color: #475569 !important;
+}
+
+.light-mode .text-gray-500 {
+  color: #64748b !important;
+}
+
+/* Border colors */
+.light-mode .border-gray-600 {
+  border-color: #cbd5e1 !important;
+}
+
+.light-mode .border-gray-700 {
+  border-color: #e2e8f0 !important;
+}
+
+.light-mode .border-gray-700\/50 {
+  border-color: rgba(226, 232, 240, 0.5) !important;
+}
+
+.light-mode .border-gray-800 {
+  border-color: #e2e8f0 !important;
+}
+
+/* Hover states */
+.light-mode .hover\:bg-gray-800:hover {
+  background-color: rgba(226, 232, 240, 0.8) !important;
+}
+
+.light-mode .hover\:bg-gray-700:hover {
+  background-color: rgba(203, 213, 225, 0.8) !important;
+}
+
+.light-mode .hover\:bg-gray-600:hover {
+  background-color: rgba(203, 213, 225, 0.9) !important;
+}
+
+.light-mode .hover\:text-white:hover {
+  color: #0f172a !important;
+}
+
+/* Gradients */
+.light-mode .bg-gradient-to-r.from-gray-800.to-gray-900 {
+  background-image: linear-gradient(to right, #f1f5f9, #e2e8f0) !important;
+}
+
+.light-mode .from-blue-900\/50,
+.light-mode .to-purple-900\/50 {
+  --tw-gradient-from: rgba(219, 234, 254, 0.7);
+  --tw-gradient-to: rgba(233, 213, 255, 0.7);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+
+/* Exercise selector card styles */
+.light-mode button[class*="border-gray-600"] {
+  border-color: #cbd5e1 !important;
+}
+
+.light-mode button[class*="border-gray-600"]:hover {
+  border-color: #94a3b8 !important;
+}
+
+/* Input fields */
+.light-mode input[class*="bg-gray-800"],
+.light-mode select[class*="bg-gray-800"] {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.light-mode input[class*="bg-gray-800"]::placeholder,
+.light-mode select[class*="bg-gray-800"]::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Countdown overlay text in light mode */
+.light-mode .fixed.inset-0.bg-black\/80 .text-white,
+.light-mode .fixed.inset-0.bg-black\/80 .text-8xl,
+.light-mode .fixed.inset-0.bg-black\/80 .text-6xl,
+.light-mode .fixed.inset-0.bg-black\/80 .text-2xl,
+.light-mode .fixed.inset-0.bg-black\/80 .text-xl {
+  color: #0f172a !important;
+}
+
+/* Stats cards */
+.light-mode .stats-card {
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Glass effect for light mode */
+.light-mode .glass {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* Toast in light mode */
+.light-mode .toast {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+}
+
+/* Scrollbar in light mode */
+.light-mode::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+.light-mode::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+
+.light-mode::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Chart styles for light mode */
+.light-mode .recharts-cartesian-axis-tick-value {
+  fill: #475569 !important;
+}
+
+.light-mode .recharts-legend-item-text {
+  color: #475569 !important;
+}
+
+/* Table rows */
+.light-mode tr[class*="border-gray-700"] {
+  border-color: #e2e8f0 !important;
+}
+
+/* Rounded cards/containers */
+.light-mode [class*="rounded-xl"][class*="bg-gray-800"],
+.light-mode [class*="rounded-2xl"][class*="bg-gray-800"] {
+  background-color: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* Footer */
+.light-mode footer {
+  color: #64748b !important;
 }
