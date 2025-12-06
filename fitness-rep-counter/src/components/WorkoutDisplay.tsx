@@ -11,7 +11,6 @@ import {
   Pause, 
   StopCircle, 
   SkipForward,
-  Clock,
   AlertTriangle,
   CheckCircle
 } from 'lucide-react';
@@ -46,7 +45,6 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
   currentSet,
   phase,
   countdownTime,
-  restTime,
   reps,
   onRepComplete,
   onSetComplete,
@@ -153,7 +151,7 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
   useEffect(() => {
     speechService.initialize();
     speechService.updateSettings({ enabled: isSpeechEnabled });
-  }, []);
+  }, [isSpeechEnabled]);
 
   // Update camera ready state
   useEffect(() => {

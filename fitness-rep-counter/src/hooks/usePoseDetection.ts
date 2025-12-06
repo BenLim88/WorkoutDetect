@@ -34,6 +34,7 @@ export const usePoseDetection = ({
   
   const animationFrameRef = useRef<number | null>(null);
   const isRunningRef = useRef(false);
+  const detectRef = useRef<(() => Promise<void>) | undefined>(undefined);
 
   const initialize = useCallback(async () => {
     try {
@@ -126,8 +127,15 @@ export const usePoseDetection = ({
       }
     }
 
-    animationFrameRef.current = requestAnimationFrame(detect);
+    animationFrameRef.current = requestAnimationFrame(() => {
+      detectRef.current?.();
+    });
   }, [videoRef, isActive, onRepComplete, drawPose]);
+
+  // Keep detect ref updated
+  useEffect(() => {
+    detectRef.current = detect;
+  }, [detect]);
 
   const startDetection = useCallback(() => {
     if (isRunningRef.current) return;

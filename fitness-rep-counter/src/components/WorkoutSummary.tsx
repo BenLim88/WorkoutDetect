@@ -60,7 +60,7 @@ const WorkoutSummary: React.FC<WorkoutSummaryProps> = ({
           title: 'Workout Complete!',
           text: shareText,
         });
-      } catch (err) {
+      } catch {
         console.log('Share cancelled');
       }
     } else {
