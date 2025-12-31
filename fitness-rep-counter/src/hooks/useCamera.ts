@@ -75,12 +75,14 @@ export const useCamera = (options: UseCameraOptions = {}): UseCameraReturn => {
       stopCamera();
 
       // Request camera access
+      // Use conservative resolution and frame rate hints to keep
+      // performance stable across front/rear cameras.
       const constraints: MediaStreamConstraints = {
         video: {
           facingMode,
-          width: { ideal: width },
-          height: { ideal: height },
-          frameRate: { ideal: 30 },
+          width: { ideal: width, max: width },
+          height: { ideal: height, max: height },
+          frameRate: { ideal: 30, max: 30 },
         },
         audio: false,
       };
@@ -172,9 +174,9 @@ export const useCamera = (options: UseCameraOptions = {}): UseCameraReturn => {
 
   // Restart camera when facing mode changes
   useEffect(() => {
-    if (isReady) {
-      startCamera();
-    }
+    // Always restart the stream when we switch between front/rear.
+    // startCamera() will safely stop any existing stream first.
+    startCamera();
   }, [facingMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cleanup on unmount

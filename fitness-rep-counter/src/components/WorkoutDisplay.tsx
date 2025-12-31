@@ -234,6 +234,11 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
   // Handle phase changes
   useEffect(() => {
     if (phase === 'countdown') {
+      // Do not start the countdown until camera & pose detection
+      // are both initialized, so that "Go" aligns with readiness.
+      if (!isCameraReady || !isPoseReady) {
+        return;
+      }
       countdownTimer.reset(countdownTime);
       countdownTimer.start();
       speechService.announceExerciseStart(exerciseData.name);
@@ -245,7 +250,7 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
       speechService.announceWorkoutComplete();
       onCompleteWorkout();
     }
-  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [phase, isCameraReady, isPoseReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Toggle speech
   const toggleSpeech = useCallback(() => {
