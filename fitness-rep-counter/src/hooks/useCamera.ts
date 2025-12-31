@@ -75,15 +75,29 @@ export const useCamera = (options: UseCameraOptions = {}): UseCameraReturn => {
       stopCamera();
 
       // Request camera access
-      // Use conservative resolution and frame rate hints to keep
-      // performance stable across front/rear cameras.
+      // Use different resolution hints for front vs rear cameras to
+      // keep TensorFlow + drawing smooth on the typically higher-res
+      // environment camera.
+      const isRear = facingMode === 'environment';
+
+      const videoConstraints: MediaTrackConstraints = isRear
+        ? {
+            facingMode,
+            // Prefer a lower resolution for the rear camera
+            // to improve FPS on pose detection.
+            width: { ideal: 640, max: 640 },
+            height: { ideal: 360, max: 360 },
+            frameRate: { ideal: 24, max: 24 },
+          }
+        : {
+            facingMode,
+            width: { ideal: width, max: width },
+            height: { ideal: height, max: height },
+            frameRate: { ideal: 30, max: 30 },
+          };
+
       const constraints: MediaStreamConstraints = {
-        video: {
-          facingMode,
-          width: { ideal: width, max: width },
-          height: { ideal: height, max: height },
-          frameRate: { ideal: 30, max: 30 },
-        },
+        video: videoConstraints,
         audio: false,
       };
 

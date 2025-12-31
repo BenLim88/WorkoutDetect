@@ -101,8 +101,9 @@ class SpeechService {
   // For reps: play a short "ring" on every valid rep,
   // and only speak the rep count every 5 reps to reduce chatter.
   announceRep(count: number): void {
-    // Ring sound (short, lower priority)
-    this.speak('ding', 'low');
+    // Bell sound (short, lower priority). We rely on TTS here,
+    // so keep it brief so it feels more like a chime than speech.
+    this.speak('bell', 'low');
 
     if (count > 0 && count % 5 === 0) {
       this.speak(count.toString(), 'high');
