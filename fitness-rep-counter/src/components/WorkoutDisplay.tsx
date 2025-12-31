@@ -5,6 +5,7 @@ import { useCamera, ZoomLevel } from '../hooks/useCamera';
 import { usePoseDetection } from '../hooks/usePoseDetection';
 import { useTimer } from '../hooks/useTimer';
 import { speechService } from '../services/speechService';
+import { checkBodyAlignment } from '../utils/angleCalculations';
 import CameraView from './CameraView';
 import { 
   Play, 
@@ -66,6 +67,7 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
   const [isSpeechEnabled, setIsSpeechEnabled] = useState(true);
   const [lastFormIssue, setLastFormIssue] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
+  const [hasAnnouncedSetupIssue, setHasAnnouncedSetupIssue] = useState(false);
 
   const exerciseData = exercises[exercise];
 
@@ -105,7 +107,9 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
     if (rep.isValid) {
       speechService.announceRep(reps.length + 1);
     } else {
-      const issue = rep.issues[0] || 'Form needs improvement';
+      const defaultIssue =
+        'No rep. Keep your body in a straight line from shoulders through hips to ankles.';
+      const issue = rep.issues[0] || defaultIssue;
       speechService.announceInvalidRep(issue);
       setLastFormIssue(issue);
       setTimeout(() => setLastFormIssue(null), 3000);
@@ -124,6 +128,7 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
   // Pose detection hook
   const {
     isInitialized: isPoseReady,
+    currentPose,
     error: poseError,
     initialize: initializePose,
     startDetection,
@@ -184,6 +189,32 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({
   useEffect(() => {
     onPoseReady(isPoseReady);
   }, [isPoseReady, onPoseReady]);
+
+  // Pre-workout posture check for push-ups:
+  // before any reps are registered, ensure the body is in a straight line
+  // so that the system has a good side/oblique view for angle measurements.
+  useEffect(() => {
+    if (exercise !== 'pushups') return;
+    if (!currentPose) return;
+    if (reps.length > 0) return;
+    if (phase !== 'countdown' && phase !== 'exercising') return;
+
+    const alignmentScore = checkBodyAlignment(currentPose.keypoints);
+
+    // If alignment is poor or keypoints are missing, remind the user once.
+    if (alignmentScore < 85) {
+      if (!hasAnnouncedSetupIssue) {
+        speechService.announceFormIssue(
+          'Set up in a straight line from shoulders through hips to ankles before starting push-ups.',
+        );
+        setHasAnnouncedSetupIssue(true);
+      }
+    } else if (hasAnnouncedSetupIssue) {
+      // Reset so that if the user loses setup later (before first rep),
+      // we can warn again.
+      setHasAnnouncedSetupIssue(false);
+    }
+  }, [exercise, currentPose, reps.length, phase, hasAnnouncedSetupIssue]);
 
   // Initialize pose detection when camera is ready
   useEffect(() => {

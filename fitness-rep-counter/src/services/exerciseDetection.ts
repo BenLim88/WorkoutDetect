@@ -348,14 +348,18 @@ class ExerciseDetectionService {
 
     switch (this.currentExercise) {
       case 'pushups': {
-        // Check body alignment
+        // Check body alignment (shouldershipsankles in a straight line)
         const alignmentScore = checkBodyAlignment(keypoints);
-        if (alignmentScore < 70) {
+
+        // Treat anything noticeably out of line as a form issue.
+        // < 75 is considered a major issue (sagging hips or pike),
+        // 7584 is a moderate issue.
+        if (alignmentScore < 85) {
           this.addFormIssue({
             type: 'alignment',
-            severity: alignmentScore < 50 ? 'major' : 'moderate',
-            message: 'Keep your body in a straight line',
-            recommendation: 'Engage your core and glutes to maintain a plank position',
+            severity: alignmentScore < 75 ? 'major' : 'moderate',
+            message: 'No rep. Keep your body in a straight line from shoulders through hips to ankles.',
+            recommendation: 'Engage your core and glutes to maintain a rigid plank from shoulders to ankles.',
           });
         }
 

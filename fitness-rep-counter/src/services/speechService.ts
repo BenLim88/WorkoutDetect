@@ -98,12 +98,19 @@ class SpeechService {
   }
 
   // Convenience methods for common announcements
+  // For reps: play a short "ring" on every valid rep,
+  // and only speak the rep count every 5 reps to reduce chatter.
   announceRep(count: number): void {
-    this.speak(count.toString(), 'high');
+    // Ring sound (short, lower priority)
+    this.speak('ding', 'low');
+
+    if (count > 0 && count % 5 === 0) {
+      this.speak(count.toString(), 'high');
+    }
   }
 
   announceInvalidRep(reason?: string): void {
-    const message = reason ? `Invalid rep. ${reason}` : 'Invalid rep';
+    const message = reason ?? 'No rep. Form needs improvement.';
     this.speak(message, 'high');
   }
 
