@@ -4,20 +4,20 @@ import ExerciseSelector from './components/ExerciseSelector';
 import WorkoutDisplay from './components/WorkoutDisplay';
 import WorkoutSummary from './components/WorkoutSummary';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
+import VideoAnalyzer from './components/VideoAnalyzer';
 import { RepData, WorkoutPhase } from './types';
 import {
   Activity,
   BarChart3,
-  Settings,
-  Info,
   Moon,
   Sun,
   Volume2,
   VolumeX,
+  FileVideo,
 } from 'lucide-react';
 import './App.css';
 
-type AppView = 'home' | 'workout' | 'summary' | 'analytics';
+type AppView = 'home' | 'workout' | 'summary' | 'analytics' | 'video';
 
 function App() {
   const [appView, setAppView] = useState<AppView>('home');
@@ -92,6 +92,10 @@ function App() {
     setAppView('analytics');
   }, []);
 
+  const handleViewVideoAnalyzer = useCallback(() => {
+    setAppView('video');
+  }, []);
+
   const handleBackFromAnalytics = useCallback(() => {
     if (currentSession && phase === 'summary') {
       setAppView('summary');
@@ -116,13 +120,22 @@ function App() {
           </div>
           <div className="flex items-center gap-2">
             {appView === 'home' && (
-              <button
-                onClick={handleViewAnalytics}
-                className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
-                title="View Analytics"
-              >
-                <BarChart3 className="w-5 h-5" />
-              </button>
+              <>
+                <button
+                  onClick={handleViewVideoAnalyzer}
+                  className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+                  title="Analyze Video"
+                >
+                  <FileVideo className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={handleViewAnalytics}
+                  className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+                  title="View Analytics"
+                >
+                  <BarChart3 className="w-5 h-5" />
+                </button>
+              </>
             )}
             <button
               onClick={() => setIsSpeechEnabled(!isSpeechEnabled)}
@@ -207,6 +220,12 @@ function App() {
           <AnalyticsDashboard
             workoutHistory={workoutHistory}
             onBack={handleBackFromAnalytics}
+          />
+        )}
+
+        {appView === 'video' && (
+          <VideoAnalyzer
+            onBack={() => setAppView('home')}
           />
         )}
       </main>

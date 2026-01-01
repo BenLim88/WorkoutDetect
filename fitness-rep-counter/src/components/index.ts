@@ -4,3 +4,4 @@ export { default as CameraPreview } from './CameraPreview';
 export { default as WorkoutDisplay } from './WorkoutDisplay';
 export { default as WorkoutSummary } from './WorkoutSummary';
 export { default as AnalyticsDashboard } from './AnalyticsDashboard';
+export { default as VideoAnalyzer } from './VideoAnalyzer';

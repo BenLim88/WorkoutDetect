@@ -144,3 +144,78 @@ export const getVerticalDisplacement = (
 
   return kp2.y - kp1.y;
 };
+
+// Camera view types
+export type CameraView = 'side' | 'front' | 'oblique' | 'unknown';
+
+/**
+ * Detect camera view based on shoulder width ratio.
+ * - Side view: shoulders appear very close together (width ratio < 0.1)
+ * - Front view: shoulders at maximum apparent width (width ratio > 0.25)
+ * - Oblique: somewhere in between
+ *
+ * The ratio is computed as the horizontal distance between shoulders
+ * divided by the frame width (approximated by using the video/canvas dimensions
+ * or normalized coordinates if using 0-1 range).
+ */
+export const detectCameraView = (keypoints: Keypoint[]): CameraView => {
+  const getKP = (name: keyof typeof KEYPOINT_INDICES) =>
+    poseDetectionService.getKeypoint(keypoints, name);
+
+  const leftShoulder = getKP('leftShoulder');
+  const rightShoulder = getKP('rightShoulder');
+
+  if (!leftShoulder || !rightShoulder) {
+    return 'unknown';
+  }
+
+  // Compute horizontal distance between shoulders
+  const shoulderWidthX = Math.abs(rightShoulder.x - leftShoulder.x);
+
+  // We also need a reference for scale. Use the vertical torso length
+  // (shoulder to hip) as a normalizer since it's relatively constant
+  // regardless of camera angle.
+  const leftHip = getKP('leftHip');
+  const rightHip = getKP('rightHip');
+  const hip = leftHip || rightHip;
+  const shoulder = leftShoulder; // use one shoulder for torso length
+
+  if (!hip) {
+    // Fallback: just use raw shoulder width thresholds (assuming ~640px frame)
+    if (shoulderWidthX < 40) return 'side';
+    if (shoulderWidthX > 150) return 'front';
+    return 'oblique';
+  }
+
+  const torsoLength = Math.abs(hip.y - shoulder.y);
+  if (torsoLength < 10) {
+    // Torso not visible enough
+    return 'unknown';
+  }
+
+  // Ratio of shoulder width to torso length
+  // Side view: ratio ~0 to 0.3
+  // Oblique: ratio ~0.3 to 0.7
+  // Front view: ratio ~0.7+
+  const ratio = shoulderWidthX / torsoLength;
+
+  if (ratio < 0.3) return 'side';
+  if (ratio > 0.7) return 'front';
+  return 'oblique';
+};
+
+/**
+ * Get a human-readable description of the detected camera view.
+ */
+export const getCameraViewLabel = (view: CameraView): string => {
+  switch (view) {
+    case 'side':
+      return 'Side View';
+    case 'front':
+      return 'Front View';
+    case 'oblique':
+      return 'Oblique View';
+    default:
+      return 'Unknown View';
+  }
+};

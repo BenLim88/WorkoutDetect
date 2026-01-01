@@ -111,7 +111,11 @@ class SpeechService {
   }
 
   announceInvalidRep(reason?: string): void {
-    const message = reason ?? 'No rep. Form needs improvement.';
+    // Use "No rép" spelling to prevent TTS reading "rep" as "representative"
+    const defaultMessage = 'No rép. Form needs improvement.';
+    // Also fix any incoming reason that contains "No rep"
+    const fixedReason = reason?.replace(/\bNo rep\b/gi, 'No rép');
+    const message = fixedReason ?? defaultMessage;
     this.speak(message, 'high');
   }
 

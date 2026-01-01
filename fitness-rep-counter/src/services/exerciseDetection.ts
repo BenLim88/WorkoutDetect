@@ -1,6 +1,13 @@
 import { ExerciseType, Keypoint, RepData, JointAngles, FormIssue } from '../types';
 import { poseDetectionService, KEYPOINT_INDICES } from './poseDetection';
-import { calculateAngle, getJointAngles, checkBodyAlignment, getMidpoint } from '../utils/angleCalculations';
+import {
+  calculateAngle,
+  getJointAngles,
+  checkBodyAlignment,
+  getMidpoint,
+  detectCameraView,
+  CameraView,
+} from '../utils/angleCalculations';
 
 // Exercise phase states
 type ExercisePhase = 'up' | 'down' | 'neutral';
@@ -14,6 +21,7 @@ interface ExerciseState {
   angleHistory: number[];
   peakPosition: Keypoint[] | null;
   bottomPosition: Keypoint[] | null;
+  cameraView: CameraView;
 }
 
 // Thresholds for each exercise
@@ -71,6 +79,7 @@ class ExerciseDetectionService {
     angleHistory: [],
     peakPosition: null,
     bottomPosition: null,
+    cameraView: 'unknown',
   };
 
   private currentExercise: ExerciseType = 'pushups';
@@ -92,6 +101,7 @@ class ExerciseDetectionService {
       angleHistory: [],
       peakPosition: null,
       bottomPosition: null,
+      cameraView: 'unknown',
     };
     this.repCount = 0;
     this.lastKeypoints = null;
@@ -99,6 +109,12 @@ class ExerciseDetectionService {
 
   // Main detection method - returns RepData if a rep was completed
   detectRep(keypoints: Keypoint[]): RepData | null {
+    // Update camera view detection
+    const detectedView = detectCameraView(keypoints);
+    if (detectedView !== 'unknown') {
+      this.state.cameraView = detectedView;
+    }
+
     const primaryAngle = this.getPrimaryAngle(keypoints);
     if (primaryAngle === null) return null;
 
@@ -348,38 +364,75 @@ class ExerciseDetectionService {
 
     switch (this.currentExercise) {
       case 'pushups': {
-        // Check body alignment (shouldershipsankles in a straight line)
-        const alignmentScore = checkBodyAlignment(keypoints);
+        // View-aware push-up form checking:
+        // - Side view: best for hip alignment & elbow depth
+        // - Front view: best for elbow flare & symmetry
+        // - Oblique: general form check
+        const view = this.state.cameraView;
 
-        // Treat anything noticeably out of line as a form issue.
-        // < 75 is considered a major issue (sagging hips or pike),
-        // 7584 is a moderate issue.
+        // 1. Hip/Body Alignment (Plank check) - works in all views but best in side/oblique
+        // Target: 170-180 degrees (straight line from shoulder through hip to ankle)
+        const alignmentScore = checkBodyAlignment(keypoints);
         if (alignmentScore < 85) {
+          const isSagging = this.detectHipSag(keypoints);
           this.addFormIssue({
             type: 'alignment',
             severity: alignmentScore < 75 ? 'major' : 'moderate',
-            message: 'No rep. Keep your body in a straight line from shoulders through hips to ankles.',
-            recommendation: 'Engage your core and glutes to maintain a rigid plank from shoulders to ankles.',
+            message: isSagging
+              ? 'No rep. Hips are sagging - engage your core.'
+              : 'No rep. Keep your body in a straight line from shoulders through hips to ankles.',
+            recommendation: 'Engage your core and glutes to maintain a rigid plank position.',
           });
         }
 
-        // Check elbow angle from body
+        // 2. Elbow Flare (Shoulder angle check) - best in front/oblique view
+        // Target: 20-45 degrees from torso. Warning: >70 degrees
         const leftShoulder = getKP('leftShoulder');
         const rightShoulder = getKP('rightShoulder');
         const leftElbow = getKP('leftElbow');
         const rightElbow = getKP('rightElbow');
-        
+        const leftHip = getKP('leftHip');
+        const rightHip = getKP('rightHip');
+
+        if (view === 'front' || view === 'oblique') {
+          // Calculate shoulder-torso angle (elbow flare) using hip-shoulder-elbow
+          if (leftShoulder && leftElbow && leftHip) {
+            const leftShoulderAngle = calculateAngle(leftHip, leftShoulder, leftElbow);
+            if (leftShoulderAngle > 70) {
+              this.addFormIssue({
+                type: 'elbowFlare',
+                severity: leftShoulderAngle > 90 ? 'major' : 'moderate',
+                message: 'Elbows flaring out too much.',
+                recommendation: 'Tuck your elbows at 20-45 degrees from your body.',
+              });
+            }
+          }
+          if (rightShoulder && rightElbow && rightHip) {
+            const rightShoulderAngle = calculateAngle(rightHip, rightShoulder, rightElbow);
+            if (rightShoulderAngle > 70) {
+              this.addFormIssue({
+                type: 'elbowFlare',
+                severity: rightShoulderAngle > 90 ? 'major' : 'moderate',
+                message: 'Elbows flaring out too much.',
+                recommendation: 'Tuck your elbows at 20-45 degrees from your body.',
+              });
+            }
+          }
+        }
+
+        // Check elbow width ratio in front view for symmetry/flare
         if (leftShoulder && rightShoulder && leftElbow && rightElbow) {
           const shoulderWidth = Math.abs(rightShoulder.x - leftShoulder.x);
           const elbowWidth = Math.abs(rightElbow.x - leftElbow.x);
-          const elbowFlare = (elbowWidth / shoulderWidth) - 1;
-          
-          if (elbowFlare > 0.5) {
+          const elbowFlareRatio = elbowWidth / shoulderWidth;
+
+          // If elbows are much wider than shoulders, they're flaring
+          if (elbowFlareRatio > 1.5) {
             this.addFormIssue({
               type: 'elbowFlare',
               severity: 'moderate',
-              message: 'Elbows flaring out too much',
-              recommendation: 'Keep elbows at 45-degree angle from body',
+              message: 'Elbows flaring out too wide.',
+              recommendation: 'Keep elbows at 45-degree angle from body.',
             });
           }
         }
@@ -482,17 +535,51 @@ class ExerciseDetectionService {
     }
   }
 
+  /**
+   * Detect if hips are sagging (below the shoulder-ankle line).
+   * Returns true if sagging, false if piking or aligned.
+   */
+  private detectHipSag(keypoints: Keypoint[]): boolean {
+    const getKP = (name: keyof typeof KEYPOINT_INDICES) =>
+      poseDetectionService.getKeypoint(keypoints, name);
+
+    const shoulder = getKP('leftShoulder') || getKP('rightShoulder');
+    const hip = getKP('leftHip') || getKP('rightHip');
+    const ankle = getKP('leftAnkle') || getKP('rightAnkle');
+
+    if (!shoulder || !hip || !ankle) return false;
+
+    // In a proper plank, the hip should be on or slightly above
+    // the line between shoulder and ankle.
+    // Calculate expected hip Y position on the shoulder-ankle line.
+    const t = (hip.x - shoulder.x) / (ankle.x - shoulder.x || 1);
+    const expectedHipY = shoulder.y + t * (ankle.y - shoulder.y);
+
+    // If actual hip Y is greater (lower on screen) than expected, hips are sagging
+    return hip.y > expectedHipY + 10; // 10px tolerance
+  }
+
   // Get current state info for UI
-  getCurrentState(): { phase: ExercisePhase; repCount: number; formIssues: FormIssue[] } {
+  getCurrentState(): {
+    phase: ExercisePhase;
+    repCount: number;
+    formIssues: FormIssue[];
+    cameraView: CameraView;
+  } {
     return {
       phase: this.state.phase,
       repCount: this.repCount,
       formIssues: [...this.state.formIssues],
+      cameraView: this.state.cameraView,
     };
   }
 
   getRepCount(): number {
     return this.repCount;
+  }
+
+  getCameraView(): CameraView {
+    return this.state.cameraView;
   }
 }
 
