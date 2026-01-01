@@ -116,7 +116,19 @@ class ExerciseDetectionService {
     }
 
     const primaryAngle = this.getPrimaryAngle(keypoints);
-    if (primaryAngle === null) return null;
+    if (primaryAngle === null) {
+      // Debug: log when we can't get an angle
+      if (this.currentExercise === 'pushups') {
+        console.log('[PushUp Debug] Cannot calculate angle - missing keypoints');
+      }
+      return null;
+    }
+
+    // Debug logging for push-ups
+    if (this.currentExercise === 'pushups') {
+      const thresholds = EXERCISE_THRESHOLDS.pushups;
+      console.log(`[PushUp Debug] Angle: ${primaryAngle.toFixed(1)}°, Phase: ${this.state.phase}, Down<${thresholds.downAngle}, Up>${thresholds.upAngle}`);
+    }
 
     // Track angle history for ROM calculation
     this.state.angleHistory.push(primaryAngle);

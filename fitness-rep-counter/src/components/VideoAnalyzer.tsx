@@ -3,7 +3,8 @@ import { ExerciseType, RepData } from '../types';
 import { exercises } from '../data/exercises';
 import { poseDetectionService } from '../services/poseDetection';
 import { exerciseDetectionService } from '../services/exerciseDetection';
-import { detectCameraView, getCameraViewLabel, CameraView } from '../utils/angleCalculations';
+import { speechService } from '../services/speechService';
+import { detectCameraView, getCameraViewLabel, CameraView, calculateAngle } from '../utils/angleCalculations';
 import {
   Upload,
   Play,
@@ -34,14 +35,18 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ onBack }) => {
   const [currentCameraView, setCurrentCameraView] = useState<CameraView>('unknown');
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+  const [currentAngle, setCurrentAngle] = useState<number | null>(null);
+  const [currentPhase, setCurrentPhase] = useState<string>('neutral');
 
   const animationFrameRef = useRef<number | null>(null);
+  const repCountRef = useRef(0); // Track rep count for speech
 
-  // Initialize pose detection
+  // Initialize pose detection and speech
   useEffect(() => {
     const initPose = async () => {
       try {
         await poseDetectionService.initialize();
+        speechService.initialize();
         setIsPoseReady(true);
       } catch (err) {
         setError('Failed to initialize pose detection');
@@ -154,10 +159,37 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ onBack }) => {
           setCurrentCameraView(view);
         }
 
+        // Calculate and display current angle for debugging
+        // For push-ups, this is the elbow angle (shoulder-elbow-wrist)
+        const keypoints = pose.keypoints;
+        const shoulder = keypoints[5] || keypoints[6]; // left or right shoulder
+        const elbow = keypoints[7] || keypoints[8]; // left or right elbow
+        const wrist = keypoints[9] || keypoints[10]; // left or right wrist
+        if (shoulder && elbow && wrist &&
+            (shoulder.score || 0) > 0.3 &&
+            (elbow.score || 0) > 0.3 &&
+            (wrist.score || 0) > 0.3) {
+          const angle = calculateAngle(shoulder, elbow, wrist);
+          setCurrentAngle(Math.round(angle));
+        }
+
+        // Update phase from exercise detection state
+        const state = exerciseDetectionService.getCurrentState();
+        setCurrentPhase(state.phase);
+
         // Detect rep
         const rep = exerciseDetectionService.detectRep(pose.keypoints);
         if (rep) {
           setReps(prev => [...prev, rep]);
+          repCountRef.current += 1;
+
+          // Audio feedback like live camera
+          if (rep.isValid) {
+            speechService.announceRep(repCountRef.current);
+          } else {
+            const issue = rep.issues[0] || 'No rép. Form needs improvement.';
+            speechService.announceInvalidRep(issue);
+          }
         }
       }
 
@@ -206,7 +238,11 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ onBack }) => {
     setIsAnalyzing(false);
     setReps([]);
     setProgress(0);
+    setCurrentAngle(null);
+    setCurrentPhase('neutral');
+    repCountRef.current = 0;
     exerciseDetectionService.reset();
+    speechService.stop();
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
     }
@@ -323,6 +359,21 @@ const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({ onBack }) => {
               <span className="text-sm text-gray-300">
                 {getCameraViewLabel(currentCameraView)}
               </span>
+            </div>
+
+            {/* Debug info - angle and phase */}
+            <div className="absolute top-14 left-4 bg-black/70 backdrop-blur-sm rounded-lg px-3 py-2">
+              <div className="text-xs text-gray-400">Elbow Angle</div>
+              <div className="text-lg font-bold text-yellow-400">
+                {currentAngle !== null ? `${currentAngle}°` : '--'}
+              </div>
+              <div className="text-xs text-gray-400 mt-1">Phase</div>
+              <div className={`text-sm font-medium ${
+                currentPhase === 'down' ? 'text-blue-400' :
+                currentPhase === 'up' ? 'text-green-400' : 'text-gray-400'
+              }`}>
+                {currentPhase.toUpperCase()}
+              </div>
             </div>
 
             {/* Rep counter overlay */}
